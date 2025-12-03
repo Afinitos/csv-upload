@@ -21,6 +21,7 @@ export type RowValidation = { rowIndex: number; errors: CellError[] };
 export type CsvUploadMapperProps = {
   expectedColumns: ExpectedColumn[];
   onSubmit: (payload: { rows: MappedRow[]; mapping: ColumnMapping }) => Promise<void> | void;
+  onRowCountChange?: (count: number) => void;
   allowSubmitWithErrors?: boolean;
   /**
    * For testing or preloading CSV without using a file input.

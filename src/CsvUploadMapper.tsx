@@ -245,6 +245,7 @@ function loadCatalogFromStorage(key: string): CatalogField[] | null {
 export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   expectedColumns,
   onSubmit,
+  onRowCountChange,
   allowSubmitWithErrors = false,
   initialCsvText,
   className,
@@ -266,6 +267,11 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
 
   // Validation state
   const [rowErrors, setRowErrors] = useState<RowValidation[]>([]);
+
+  // Notify parent about row count changes
+  useEffect(() => {
+    onRowCountChange?.(mappedRows.length);
+  }, [mappedRows, onRowCountChange]);
 
   type FilterMode = "all" | "valid" | "invalid";
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
@@ -623,14 +629,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
             <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
               <label htmlFor="upload-input">
                 <span className="cx-btn cx-btn-big cx-btn-outline" role="button">
-                  <svg
-                    className="cx-btn-icon"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M3 16.5a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 3 16.5Zm0 3a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H3.75A.75.75 0 0 1 3 19.5Zm9.72-15.28a.75.75 0 0 1 1.06 0l3.97 3.97a.75.75 0 1 1-1.06 1.06l-2.69-2.69V15a.75.75 0 0 1-1.5 0V6.56L9.78 9.25a.75.75 0 1 1-1.06-1.06l3.97-3.97ZM18.75 12a.75.75 0 0 1 .75.75V18a3 3 0 0 1-3 3H9.5a3 3 0 0 1-3-3v-1.25a.75.75 0 0 1 1.5 0V18a1.5 1.5 0 0 0 1.5 1.5h7.25A1.5 1.5 0 0 0 18.75 18v-5.25a.75.75 0 0 1 .75-.75Z" />
-                  </svg>
+                  <i className="fa-solid fa-upload cx-btn-icon" aria-hidden="true"></i>
                   Upload file
                 </span>
               </label>
@@ -641,14 +640,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   setStep("map");
                 }}
               >
-                <svg
-                  className="cx-btn-icon"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M16.862 4.487a1.5 1.5 0 0 1 2.121 2.121l-9.9 9.9a3 3 0 0 1-1.272.757l-2.7.772a.75.75 0 0 1-.927-.927l.772-2.7a3 3 0 0 1 .757-1.272l9.9-9.9Zm-2.1-.439-9.9 9.9a1.5 1.5 0 0 0-.379.636l-.5 1.752 1.752-.5a1.5 1.5 0 0 0 .636-.379l9.9-9.9-1.509-1.509Z" />
-                </svg>
+                <i className="fa-solid fa-pen-to-square cx-btn-icon" aria-hidden="true"></i>
                 Manually enter data
               </button>
             </div>

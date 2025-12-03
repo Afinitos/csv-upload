@@ -223,10 +223,11 @@ body {
   background: #fff5f5;
 }
 .cx-btn-icon {
-  width: 16px;
-  height: 16px;
+  font-size: 16px;
   margin-right: 6px;
   vertical-align: -2px;
+  line-height: 1;
+  display: inline-block;
 }
 
 /* Edit table styles (sheet-like) */
@@ -261,6 +262,17 @@ body {
   border-radius: 6px;
   padding: 6px 8px;
   box-sizing: border-box;
+  background: #fff;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* Disabled (editing off) - visibly different state */
+.cx-cell:disabled,
+.cx-cell.invalid:disabled {
+  background: #f3f4f6; /* light gray */
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
 }
 .cx-cell.invalid {
   border-color: var(--primary);
@@ -393,9 +405,9 @@ body {
   color: var(--primary-600);
   background: #fff0f0;
 }
-.cx-sidebar-delete svg {
-  width: 18px;
-  height: 18px;
+.cx-sidebar-delete i {
+  font-size: 18px;
+  line-height: 1;
 }
 
 .cx-content {
