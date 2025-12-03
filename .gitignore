@@ -1,2 +1,32 @@
 # Dependencies
 node_modules/
+
+# Python venv (local)
+venv/
+
+# Local Django env file (do not commit)
+backend/server/.env
+
+# Local SQLite (if present from earlier)
+backend/server/db.sqlite3
+
+# Python caches and artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE/editor folders
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
