@@ -32,6 +32,7 @@ export default function App() {
   });
 
   const activeName = workbooks[activeIdx] ?? "Assets";
+  const [rowCount, setRowCount] = useState(0);
 
   // Persist list + active selection
   useEffect(() => {
@@ -52,11 +53,27 @@ export default function App() {
   const storageKey = useMemo(() => `csvUploadFieldCatalog:${activeName}`, [activeName]);
 
   async function handleSubmit(payload: { rows: MappedRow[]; mapping: ColumnMapping }) {
-    // Here you would typically send payload to backend
-    // await fetch("/api/your-endpoint", { method: "POST", body: JSON.stringify(payload) });
-    // Do not show payload on screen; keep the grid view
-    // eslint-disable-next-line no-console
-    console.log("Submitted payload for", activeName, payload);
+    try {
+      const res = await fetch("http://localhost:8000/api/uploads/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workbook: activeName,
+          rows: payload.rows,
+          mapping: payload.mapping,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Backend error ${res.status}: ${text}`);
+      }
+      const saved = await res.json();
+      // eslint-disable-next-line no-console
+      console.log("Saved to backend:", saved);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to save to backend:", err);
+    }
   }
 
   function addWorkbook() {
@@ -128,9 +145,7 @@ export default function App() {
                 className={`cx-sidebar-item${active ? " active" : ""}`}
                 onClick={() => setActiveIdx(i)}
               >
-                <span className="cx-sidebar-icon" aria-hidden>
-                  ▦
-                </span>
+                <i className="fa-solid fa-table-cells-large cx-sidebar-icon" aria-hidden="true"></i>
                 <span className="cx-sidebar-name">{name}</span>
                 <button
                   className="cx-sidebar-delete"
@@ -141,15 +156,7 @@ export default function App() {
                     deleteWorkbook(i);
                   }}
                 >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M6 7h12a1 1 0 1 0 0-2h-3.5l-.53-.53A2 2 0 0 0 12.586 4h-1.172a2 2 0 0 0-1.414.586L9.47 5H6a1 1 0 1 0 0 2Zm1.5 12a3 3 0 0 1-3-3V8h15v8a3 3 0 0 1-3 3h-9Zm2.25-9a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Zm6 0a1 1 0 1 0-2 0v7a1 1 0 1 0 2 0v-7Z" />
-                  </svg>
+                  <i className="fa-solid fa-trash" aria-hidden="true"></i>
                 </button>
               </li>
             );
@@ -169,7 +176,7 @@ export default function App() {
           </div>
           {/* Right cluster (icons placeholders + Submit lives in component) */}
           <div className="cx-header-actions">
-            <span className="cx-muted">9 Records</span>
+            <span className="cx-muted">{rowCount} Records</span>
             <div className="cx-sep" />
             <button className="cx-btn">All</button>
             <button className="cx-btn">Valid</button>
@@ -182,6 +189,7 @@ export default function App() {
           key={activeName}
           expectedColumns={[]}
           onSubmit={handleSubmit}
+          onRowCountChange={setRowCount}
           storageKey={storageKey}
         />
       </main>
