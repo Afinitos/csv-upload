@@ -251,6 +251,8 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   className,
   style,
   storageKey,
+  submitting = false,
+  submitError = null,
 }) => {
   const [step, setStep] = useState<Step>(initialCsvText ? "map" : "upload");
   const [rawCsvText, setRawCsvText] = useState<string>(initialCsvText ?? "");
@@ -425,9 +427,27 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   const readFileText = useCallback((file: File) => {
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onload = () => {
+        try {
+          const buf = reader.result as ArrayBuffer;
+          const bytes = new Uint8Array(buf);
+          let encoding: string = "utf-8";
+          if (bytes.length >= 2) {
+            const b0 = bytes[0];
+            const b1 = bytes[1];
+            const b2 = bytes[2];
+            if (b0 === 0xfe && b1 === 0xff) encoding = "utf-16be";
+            else if (b0 === 0xff && b1 === 0xfe) encoding = "utf-16le";
+            else if (b0 === 0xef && b1 === 0xbb && b2 === 0xbf) encoding = "utf-8";
+          }
+          const dec = new TextDecoder(encoding as any);
+          resolve(dec.decode(bytes));
+        } catch (e) {
+          reject(e);
+        }
+      };
       reader.onerror = () => reject(reader.error);
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
     });
   }, []);
 
@@ -532,7 +552,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
 
   const updateCell = useCallback(
     (rowIndex: number, columnKey: string, value: string) => {
-      if (submitted) return;
+      if (submitted || submitting) return;
       setMappedRows((prev) => {
         const copy = [...prev];
         copy[rowIndex] = { ...copy[rowIndex], [columnKey]: value };
@@ -545,7 +565,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
         return copy;
       });
     },
-    [expectedColumns, mappedRows, submitted]
+    [expectedColumns, mappedRows, submitted, submitting]
   );
 
   const handleSubmit = useCallback(async () => {
@@ -555,6 +575,60 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     await onSubmit({ rows: mappedRows, mapping });
     setSubmitted(true);
   }, [allowSubmitWithErrors, invalidCount, onSubmit, mappedRows, mapping]);
+
+  const exportInvalidRows = useCallback(() => {
+    const cols = displayColumns ?? expectedColumns;
+    const invalid = rowErrors.filter((r) => r.errors.length > 0).map((r) => r.rowIndex);
+    const csvRows: string[] = [];
+    const headers = [...cols.map((c) => c.label), "Errors"];
+    const escape = (v: string) => {
+      const s = v ?? "";
+      if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
+    csvRows.push(headers.map(escape).join(","));
+    invalid.forEach((idx) => {
+      const row = mappedRows[idx] ?? {};
+      const errs =
+        rowErrors[idx]?.errors?.map((e) => `${e.columnKey}: ${e.message}`).join("; ") ?? "";
+      const values = cols.map((c) => String(row[c.key] ?? ""));
+      csvRows.push([...values, errs].map(escape).join(","));
+    });
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "invalid_rows.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [displayColumns, expectedColumns, mappedRows, rowErrors]);
+
+  const exportAllRows = useCallback(() => {
+    const cols = displayColumns ?? expectedColumns;
+    const headers = cols.map((c) => c.label);
+    const escape = (v: string) => {
+      const s = v ?? "";
+      if (s.includes('"') || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
+    const csvRows: string[] = [];
+    csvRows.push(headers.map(escape).join(","));
+    mappedRows.forEach((row) => {
+      const values = cols.map((c) => String(row[c.key] ?? ""));
+      csvRows.push(values.map(escape).join(","));
+    });
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "workbook.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [displayColumns, expectedColumns, mappedRows]);
 
   const resetToUpload = useCallback(() => {
     setStep("upload");
@@ -980,9 +1054,21 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 />
                 <span>Enable editing</span>
               </label>
+              <button className="cx-btn" onClick={exportAllRows} disabled={submitting}>
+                Export workbook (CSV)
+              </button>
+              {invalidRowCount > 0 ? (
+                <button className="cx-btn" onClick={exportInvalidRows} disabled={submitting}>
+                  Export invalid (CSV)
+                </button>
+              ) : null}
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="cx-btn" onClick={() => setStep("map")} disabled={submitted}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                className="cx-btn"
+                onClick={() => setStep("map")}
+                disabled={submitted || submitting}
+              >
                 Back
               </button>
               {submitted ? (
@@ -990,14 +1076,24 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   Submitted
                 </button>
               ) : (
-                <button
-                  className="cx-btn cx-btn-primary"
-                  onClick={handleSubmit}
-                  disabled={invalidRowCount > 0 && !allowSubmitWithErrors}
-                  data-testid="submit-button"
-                >
-                  Submit
-                </button>
+                <>
+                  <button
+                    className="cx-btn cx-btn-primary"
+                    onClick={handleSubmit}
+                    disabled={(invalidRowCount > 0 && !allowSubmitWithErrors) || submitting}
+                    data-testid="submit-button"
+                  >
+                    {submitting ? "Submitting…" : "Submit"}
+                  </button>
+                  {submitError ? (
+                    <>
+                      <span style={{ color: "#d32f2f" }}>{submitError}</span>
+                      <button className="cx-btn" onClick={handleSubmit} disabled={submitting}>
+                        Retry
+                      </button>
+                    </>
+                  ) : null}
+                </>
               )}
             </div>
           </div>
