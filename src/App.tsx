@@ -36,6 +36,50 @@ export default function App() {
   const activeName = workbooks[activeIdx] ?? "Assets";
   const [rowCount, setRowCount] = useState(0);
 
+  // Ask DB modal state
+  const [isAskOpen, setIsAskOpen] = useState(false);
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askSql, setAskSql] = useState<string | null>(null);
+  const [askRows, setAskRows] = useState<any[] | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
+
+  const askMutation = useMutation({
+    mutationFn: async (question: string) => {
+      const res = await fetch(`${API_BASE}/api/ask/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const text = await res.text().catch(() => "");
+      if (!res.ok) {
+        // Try to show backend-provided detail if it's JSON.
+        try {
+          const j = JSON.parse(text);
+          throw new Error(j?.detail ? String(j.detail) : `Ask failed (${res.status})`);
+        } catch {
+          throw new Error(text || `Ask failed (${res.status})`);
+        }
+      }
+      return JSON.parse(text) as { sql: string; rows: any[] };
+    },
+    onMutate: () => {
+      setAskError(null);
+      setAskSql(null);
+      setAskRows(null);
+    },
+    onSuccess: (data) => {
+      setAskSql(data.sql);
+      setAskRows(Array.isArray(data.rows) ? data.rows : []);
+    },
+    onError: (err) => {
+      setAskError(err instanceof Error ? err.message : String(err));
+    },
+  });
+
+  function closeAsk() {
+    setIsAskOpen(false);
+  }
+
   // Persist list + active selection
   useEffect(() => {
     try {
@@ -56,7 +100,7 @@ export default function App() {
 
   const uploadMutation = useMutation({
     mutationFn: async (payload: { rows: MappedRow[]; mapping: ColumnMapping }) => {
-      const res = await fetch(`${API_BASE}/api/uploads`, {
+      const res = await fetch(`${API_BASE}/api/uploads/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -78,7 +122,7 @@ export default function App() {
     queryKey: ["uploads", activeName, 0, 10],
     queryFn: async () => {
       const res = await fetch(
-        `${API_BASE}/api/uploads?limit=10&offset=0&workbook=${encodeURIComponent(activeName)}`
+        `${API_BASE}/api/uploads/?limit=10&offset=0&workbook=${encodeURIComponent(activeName)}`
       );
       if (!res.ok) throw new Error(`Failed to load uploads: ${res.status}`);
       const items = await res.json();
@@ -198,6 +242,20 @@ export default function App() {
                 ? "Loading uploads…"
                 : `Saved uploads: ${uploadsQuery.data?.total ?? 0}`}
             </span>
+
+            <div className="cx-sep" />
+            <button
+              className="cx-btn"
+              onClick={() => {
+                setIsAskOpen(true);
+                setAskQuestion("");
+                setAskSql(null);
+                setAskRows(null);
+                setAskError(null);
+              }}
+            >
+              Ask DB
+            </button>
           </div>
         </div>
 
@@ -217,6 +275,89 @@ export default function App() {
               : null
           }
         />
+
+        {/* Ask DB modal */}
+        {isAskOpen && (
+          <div className="cx-modal-backdrop" onClick={closeAsk} role="dialog" aria-modal="true">
+            <div className="cx-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="cx-modal-header">
+                <div className="cx-modal-title">Ask database</div>
+                <button className="cx-modal-close" onClick={closeAsk} aria-label="Close">
+                  ✕
+                </button>
+              </div>
+
+              <div className="cx-modal-body">
+                <label className="cx-label">Question</label>
+                <textarea
+                  className="cx-textarea"
+                  rows={3}
+                  value={askQuestion}
+                  placeholder="eg. How many uploads are there?"
+                  onChange={(e) => setAskQuestion(e.target.value)}
+                />
+
+                <div className="cx-modal-actions">
+                  <button
+                    className="cx-btn"
+                    type="button"
+                    disabled={askMutation.isPending || !askQuestion.trim()}
+                    onClick={() => askMutation.mutate(askQuestion.trim())}
+                  >
+                    {askMutation.isPending ? "Asking…" : "Submit"}
+                  </button>
+                  <button className="cx-btn cx-btn-secondary" onClick={closeAsk}>
+                    Close
+                  </button>
+                </div>
+
+                {askError && <div className="cx-error">{askError}</div>}
+
+                {askSql && (
+                  <div className="cx-block">
+                    <div className="cx-block-title">Generated SQL</div>
+                    <pre className="cx-pre">{askSql}</pre>
+                  </div>
+                )}
+
+                {askRows && (
+                  <div className="cx-block">
+                    <div className="cx-block-title">Result</div>
+                    {askRows.length === 0 ? (
+                      <div className="cx-muted">No rows returned.</div>
+                    ) : (
+                      <div className="cx-table-wrap">
+                        <table className="cx-table">
+                          <thead>
+                            <tr>
+                              {Object.keys(askRows[0] ?? {}).map((k) => (
+                                <th key={k}>{k}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {askRows.slice(0, 50).map((row, idx) => (
+                              <tr key={idx}>
+                                {Object.keys(askRows[0] ?? {}).map((k) => (
+                                  <td key={k}>{String((row as any)?.[k] ?? "")}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {askRows.length > 50 && (
+                          <div className="cx-muted" style={{ marginTop: 6 }}>
+                            Showing first 50 rows.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

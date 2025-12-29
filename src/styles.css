@@ -71,7 +71,138 @@ body {
   display: flex;
   align-items: end;
   gap: 16px;
+
   margin-bottom: 8px;
+}
+
+/* --- Ask DB modal --- */
+.cx-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1000;
+}
+
+.cx-modal {
+  width: min(900px, 100%);
+  max-height: min(90vh, 800px);
+  overflow: auto;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.cx-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cx-modal-title {
+  font-weight: 600;
+}
+
+.cx-modal-close {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  border: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.cx-modal-body {
+  padding: 16px;
+}
+
+.cx-label {
+  display: block;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 6px;
+}
+
+.cx-textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 10px 12px;
+  outline: none;
+}
+
+.cx-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.cx-btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cx-error {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: rgba(255, 255, 255, 0.92);
+  white-space: pre-wrap;
+}
+
+.cx-block {
+  margin-top: 14px;
+}
+
+.cx-block-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 6px;
+}
+
+.cx-pre {
+  white-space: pre-wrap;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.cx-table-wrap {
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.cx-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cx-table th,
+.cx-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+}
+
+.cx-table th {
+  position: sticky;
+  top: 0;
+  background: #0b1222;
+  text-align: left;
+  z-index: 1;
 }
 .cx-map-title {
   font-weight: 600;

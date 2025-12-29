@@ -9,6 +9,9 @@ venv/
 .env
 .env.*
 
+# Vanna/Chroma persistence (local)
+.vanna/
+
 # Local SQLite (if present from earlier)
 db.sqlite3
 data.db
