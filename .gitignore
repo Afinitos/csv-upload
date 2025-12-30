@@ -12,6 +12,18 @@ venv/
 # Vanna/Chroma persistence (local)
 .vanna/
 
+# Vanna generated artifacts (CSV query results, per-user hashed folders)
+vanna_files/
+backend/server/vanna_files/
+backend/server/backend/server/vanna_files/
+
+# If any query_results_*.csv were written into repo root previously
+query_results_*.csv
+
+# If any hashed user folders were written into repo root previously
+# (e.g. 513935c4d2db2d2d/query_results_xxx.csv)
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/
+
 # Local SQLite (if present from earlier)
 db.sqlite3
 data.db

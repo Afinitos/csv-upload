@@ -121,6 +121,17 @@ body {
   padding: 16px;
 }
 
+/* Make all modal text white-ish by default */
+.cx-modal,
+.cx-modal * {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Keep muted text readable inside modal (without affecting the rest of the app) */
+.cx-modal .cx-muted {
+  color: rgba(255, 255, 255, 0.65);
+}
+
 .cx-label {
   display: block;
   font-size: 12px;
@@ -143,6 +154,41 @@ body {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+}
+
+.cx-subtabs {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 10px;
+}
+
+.cx-subtab {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.cx-subtab:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cx-subtab.active {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.cx-subtab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .cx-btn-secondary {
@@ -203,6 +249,91 @@ body {
   background: #0b1222;
   text-align: left;
   z-index: 1;
+}
+
+/* --- Ask DB chart rendering --- */
+.cx-chart-card {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.cx-chart-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 4px;
+}
+
+.cx-chart-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 10px;
+}
+
+.cx-chart-number {
+  display: grid;
+  gap: 2px;
+}
+
+.cx-chart-number-value {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.cx-chart-number-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.cx-barlist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cx-barrow {
+  display: grid;
+  grid-template-columns: 180px 1fr 72px;
+  gap: 10px;
+  align-items: center;
+}
+
+.cx-barlabel {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-bartrack {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.cx-barfill {
+  height: 100%;
+  background: rgba(239, 68, 68, 0.9);
+  border-radius: 999px;
+}
+
+.cx-barvalue {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: right;
+}
+
+.cx-line-svg {
+  display: block;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
 }
 .cx-map-title {
   font-weight: 600;

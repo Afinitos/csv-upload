@@ -2,6 +2,155 @@ import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import CsvUploadMapper, { type MappedRow, type ColumnMapping } from "./CsvUploadMapper";
 
+type ChartSpec = {
+  type: "bar" | "line" | "number" | "table";
+  title?: string;
+  description?: string;
+  xKey?: string | null;
+  yKey?: string | null;
+};
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+function toNumber(v: unknown): number | null {
+  if (isFiniteNumber(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function ChartRenderer({ chart, rows }: { chart: ChartSpec; rows: any[] }) {
+  const type = chart.type;
+  const title = chart.title ?? "Chart";
+  const description = chart.description ?? "";
+
+  if (type === "table") {
+    return <div className="cx-muted">Chart type is table (no chart).</div>;
+  }
+
+  if (type === "number") {
+    // Try to pick a single numeric value from first row.
+    const first = rows?.[0] ?? {};
+    const numericEntries = Object.entries(first)
+      .map(([k, v]) => ({ k, n: toNumber(v) }))
+      .filter((x) => x.n != null);
+
+    const value = numericEntries[0]?.n;
+    const label = numericEntries[0]?.k;
+    return (
+      <div className="cx-chart-card">
+        <div className="cx-chart-title">{title}</div>
+        {description && <div className="cx-chart-desc">{description}</div>}
+        <div className="cx-chart-number">
+          <div className="cx-chart-number-value">{value ?? "—"}</div>
+          {label && <div className="cx-chart-number-label">{label}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  const xKey = chart.xKey ?? undefined;
+  const yKey = chart.yKey ?? undefined;
+  if (!xKey || !yKey) {
+    return (
+      <div className="cx-muted">
+        Chart spec missing xKey/yKey. (xKey: {String(xKey)}, yKey: {String(yKey)})
+      </div>
+    );
+  }
+
+  const points = (rows ?? [])
+    .map((r: any) => ({ x: r?.[xKey], y: toNumber(r?.[yKey]) }))
+    .filter((p) => p.y != null);
+
+  if (points.length === 0) {
+    return <div className="cx-muted">No numeric data to chart.</div>;
+  }
+
+  const maxY = Math.max(...points.map((p) => p.y as number), 0);
+
+  return (
+    <div className="cx-chart-card">
+      <div className="cx-chart-title">{title}</div>
+      {description && <div className="cx-chart-desc">{description}</div>}
+
+      {type === "bar" && (
+        <div className="cx-barlist" role="img" aria-label={title}>
+          {points.slice(0, 20).map((p, idx) => {
+            const pct = maxY > 0 ? ((p.y as number) / maxY) * 100 : 0;
+            return (
+              <div key={idx} className="cx-barrow">
+                <div className="cx-barlabel">{String(p.x ?? "")}</div>
+                <div className="cx-bartrack">
+                  <div className="cx-barfill" style={{ width: `${pct}%` }} />
+                </div>
+                <div className="cx-barvalue">{p.y}</div>
+              </div>
+            );
+          })}
+          {points.length > 20 && (
+            <div className="cx-muted" style={{ marginTop: 8 }}>
+              Showing first 20 bars.
+            </div>
+          )}
+        </div>
+      )}
+
+      {type === "line" && (
+        <div className="cx-linecard" role="img" aria-label={title}>
+          {/* Minimal inline line chart using SVG */}
+          <svg viewBox="0 0 600 200" width="100%" height="200" className="cx-line-svg">
+            {(() => {
+              const w = 600;
+              const h = 200;
+              const pad = 16;
+              const xs = points.map((_, i) => i);
+              const minX = 0;
+              const maxX = Math.max(...xs, 1);
+              const minY = 0;
+              const maxYLocal = Math.max(...points.map((p) => p.y as number), 1);
+              const scaleX = (i: number) => pad + (i - minX) * ((w - pad * 2) / (maxX - minX));
+              const scaleY = (y: number) =>
+                h - pad - (y - minY) * ((h - pad * 2) / (maxYLocal - minY));
+
+              const d = points
+                .map(
+                  (p, i) =>
+                    `${i === 0 ? "M" : "L"} ${scaleX(i).toFixed(2)} ${scaleY(p.y as number).toFixed(
+                      2
+                    )}`
+                )
+                .join(" ");
+
+              return (
+                <>
+                  <path d={d} fill="none" stroke="rgba(239, 68, 68, 0.9)" strokeWidth={2} />
+                  {points.slice(0, 12).map((p, i) => (
+                    <circle
+                      key={i}
+                      cx={scaleX(i)}
+                      cy={scaleY(p.y as number)}
+                      r={3}
+                      fill="rgba(239, 68, 68, 0.9)"
+                    />
+                  ))}
+                </>
+              );
+            })()}
+          </svg>
+          <div className="cx-muted" style={{ marginTop: 6 }}>
+            x: {xKey}, y: {yKey}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
   // Multiple workbooks support (persisted)
@@ -41,7 +190,9 @@ export default function App() {
   const [askQuestion, setAskQuestion] = useState("");
   const [askSql, setAskSql] = useState<string | null>(null);
   const [askRows, setAskRows] = useState<any[] | null>(null);
+  const [askChart, setAskChart] = useState<ChartSpec | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
+  const [showAskChart, setShowAskChart] = useState(true);
 
   const askMutation = useMutation({
     mutationFn: async (question: string) => {
@@ -60,16 +211,19 @@ export default function App() {
           throw new Error(text || `Ask failed (${res.status})`);
         }
       }
-      return JSON.parse(text) as { sql: string; rows: any[] };
+      return JSON.parse(text) as { sql: string; rows: any[]; chart?: ChartSpec };
     },
     onMutate: () => {
       setAskError(null);
       setAskSql(null);
       setAskRows(null);
+      setAskChart(null);
     },
     onSuccess: (data) => {
       setAskSql(data.sql);
       setAskRows(Array.isArray(data.rows) ? data.rows : []);
+      setAskChart(data.chart ?? null);
+      setShowAskChart(true);
     },
     onError: (err) => {
       setAskError(err instanceof Error ? err.message : String(err));
@@ -251,7 +405,9 @@ export default function App() {
                 setAskQuestion("");
                 setAskSql(null);
                 setAskRows(null);
+                setAskChart(null);
                 setAskError(null);
+                setShowAskChart(true);
               }}
             >
               Ask DB
@@ -279,7 +435,11 @@ export default function App() {
         {/* Ask DB modal */}
         {isAskOpen && (
           <div className="cx-modal-backdrop" onClick={closeAsk} role="dialog" aria-modal="true">
-            <div className="cx-modal" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="cx-modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{ width: 900, maxWidth: "95vw" }}
+            >
               <div className="cx-modal-header">
                 <div className="cx-modal-title">Ask database</div>
                 <button className="cx-modal-close" onClick={closeAsk} aria-label="Close">
@@ -288,72 +448,11 @@ export default function App() {
               </div>
 
               <div className="cx-modal-body">
-                <label className="cx-label">Question</label>
-                <textarea
-                  className="cx-textarea"
-                  rows={3}
-                  value={askQuestion}
-                  placeholder="eg. How many uploads are there?"
-                  onChange={(e) => setAskQuestion(e.target.value)}
+                <vanna-chat
+                  api-base={API_BASE}
+                  sse-endpoint={`${API_BASE}/api/vanna/v2/chat_sse`}
+                  poll-endpoint={`${API_BASE}/api/vanna/v2/chat_poll`}
                 />
-
-                <div className="cx-modal-actions">
-                  <button
-                    className="cx-btn"
-                    type="button"
-                    disabled={askMutation.isPending || !askQuestion.trim()}
-                    onClick={() => askMutation.mutate(askQuestion.trim())}
-                  >
-                    {askMutation.isPending ? "Asking…" : "Submit"}
-                  </button>
-                  <button className="cx-btn cx-btn-secondary" onClick={closeAsk}>
-                    Close
-                  </button>
-                </div>
-
-                {askError && <div className="cx-error">{askError}</div>}
-
-                {askSql && (
-                  <div className="cx-block">
-                    <div className="cx-block-title">Generated SQL</div>
-                    <pre className="cx-pre">{askSql}</pre>
-                  </div>
-                )}
-
-                {askRows && (
-                  <div className="cx-block">
-                    <div className="cx-block-title">Result</div>
-                    {askRows.length === 0 ? (
-                      <div className="cx-muted">No rows returned.</div>
-                    ) : (
-                      <div className="cx-table-wrap">
-                        <table className="cx-table">
-                          <thead>
-                            <tr>
-                              {Object.keys(askRows[0] ?? {}).map((k) => (
-                                <th key={k}>{k}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {askRows.slice(0, 50).map((row, idx) => (
-                              <tr key={idx}>
-                                {Object.keys(askRows[0] ?? {}).map((k) => (
-                                  <td key={k}>{String((row as any)?.[k] ?? "")}</td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {askRows.length > 50 && (
-                          <div className="cx-muted" style={{ marginTop: 6 }}>
-                            Showing first 50 rows.
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           </div>

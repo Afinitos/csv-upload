@@ -1,4 +1,6 @@
-from rest_framework import viewsets, permissions, status
+# views.py
+from asgiref.sync import async_to_sync
+from rest_framework import status, viewsets
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -8,45 +10,73 @@ from .vanna_service import VannaServiceError, get_vanna_service
 
 
 class UploadViewSet(viewsets.ModelViewSet):
-    queryset = Upload.objects.all().order_by("-id")
+    queryset = Upload.objects.all()
     serializer_class = UploadSerializer
-    permission_classes = [permissions.AllowAny]
+
+
+def _extract_sql_and_rows(components):
+    """
+    Pokušaj iz Vanna UI komponenti izvući SQL i tablične redove.
+    Shape komponenti zna varirati po verziji, pa je ovo robustno.
+    """
+    sql = None
+    rows = None
+
+    for c in components or []:
+        if not isinstance(c, dict):
+            continue
+
+        ctype = (c.get("type") or c.get("component_type") or "").lower()
+
+        # SQL block (često "code" ili "sql")
+        if sql is None and (ctype in {"sql", "code"} or "sql" in ctype):
+            maybe = c.get("sql") or c.get("content") or c.get("text")
+            if isinstance(maybe, str) and maybe.strip():
+                sql = maybe.strip()
+
+        # Tablica (često "table"/"data_table"/"dataframe")
+        if rows is None and (ctype in {"table", "data_table", "dataframe"} or "table" in ctype):
+            data = c.get("rows") or c.get("data") or c.get("value")
+            if isinstance(data, list):
+                rows = data
+
+    return sql, rows
 
 
 @api_view(["POST"])
 def ask(request):
-    """Ask natural language question about the Postgres DB.
-
-    Body:
-    {
-      "question": "How many uploads are there?"
-    }
-
-    Response:
-    {
-      "sql": "SELECT ...",
-      "rows": [ { ... }, ... ]
-    }
-    """
-
     question = request.data.get("question")
-    max_rows = request.data.get("max_rows", 200)
+    if not question or not isinstance(question, str):
+        return Response({"detail": "question is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        if not question or not isinstance(question, str):
-            return Response({"detail": "question is required"}, status=status.HTTP_400_BAD_REQUEST)
-
         service = get_vanna_service()
-        sql, rows = service.ask(question, max_rows=int(max_rows))
-        return Response({"sql": sql, "rows": rows})
+        headers = {k: v for k, v in request.headers.items()}
+        cookies = request.COOKIES
+
+        answer = async_to_sync(service.ask)(
+            question,
+            request_headers=headers,
+            request_cookies=cookies,
+        )
+
+        components = answer.components if hasattr(answer, "components") else answer
+        sql, rows = _extract_sql_and_rows(components)
+
+        # fallback ako rows nije došao u komponenti (neke konfiguracije vrate samo summary)
+        if rows is None:
+            rows = []
+
+        chart = None
+        try:
+            from .chart_service import generate_chart_spec
+            chart = generate_chart_spec(question=question, sql=sql, rows=rows)
+        except Exception:
+            chart = None
+
+        return Response({"sql": sql, "rows": rows, "chart": chart, "components": components})
+
     except VannaServiceError as e:
         return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        # Common case: OpenAI quota / billing
-        if "insufficient_quota" in str(e) or "RateLimitError" in str(type(e)):
-            return Response(
-                {"detail": "OpenAI quota exceeded / billing not enabled for this API key."},
-                status=status.HTTP_402_PAYMENT_REQUIRED,
-            )
-
         return Response({"detail": f"Ask failed: {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
