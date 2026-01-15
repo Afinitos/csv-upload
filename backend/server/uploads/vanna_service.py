@@ -131,12 +131,6 @@ class VannaService:
         # 4) Memory (optional)
         agent_memory = DemoAgentMemory(max_items=int(os.getenv("VANNA_MEMORY_MAX", "1000")))
 
-        try:
-            agent_memory.add_text(
-        "When user asks for a chart, always: (1) run SQL to get rows, then (2) call create_custom_chart "
-        "with data equal to the SQL rows. Do not rely on CSV files."            )
-        except Exception:
-            pass
 
         # 5) Tools registry
         tools = ToolRegistry()
