@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, useEffect, type FC } from "react";
 import fieldCatalogData from "./fieldCatalog.json";
 import styles from "./CsvUploadMapper.styles";
+import TanstackEditableTable from "./TanstackEditableTable";
 import type {
   Step,
   ExpectedColumn,
@@ -160,7 +161,7 @@ function applyMapping(
   rows: string[][],
   headers: string[],
   expected: ExpectedColumn[],
-  mapping: ColumnMapping
+  mapping: ColumnMapping,
 ): MappedRow[] {
   const headerIndex = new Map<string, number>();
   headers.forEach((h, idx) => headerIndex.set(h, idx));
@@ -169,8 +170,8 @@ function applyMapping(
     const obj: MappedRow = {};
     for (const col of expected) {
       const header = mapping[col.key];
-      const idx = header ? headerIndex.get(header) ?? -1 : -1;
-      obj[col.key] = idx >= 0 ? csvRow[idx] ?? "" : "";
+      const idx = header ? (headerIndex.get(header) ?? -1) : -1;
+      obj[col.key] = idx >= 0 ? (csvRow[idx] ?? "") : "";
     }
     return obj;
   });
@@ -209,7 +210,7 @@ function toKey(name: string): string {
   const parts = cleaned.split(/\s+/);
   return parts
     .map((p, i) =>
-      i === 0 ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()
+      i === 0 ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(),
     )
     .join("");
 }
@@ -310,12 +311,20 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       const raw = localStorage.getItem(SESSION);
       if (!raw) return;
       const s: SavedSession = JSON.parse(raw);
-      if (s.step) setStep(s.step);
+      // NOTE: For performance we no longer persist large payloads (rawCsvText/rows/mappedRows)
+      // so we must restore only what actually exists, otherwise we'd put the UI in an invalid state.
+      if (s.step && (s.rows || s.mappedRows || s.rawCsvText)) setStep(s.step);
       if (typeof s.rawCsvText === "string") setRawCsvText(s.rawCsvText);
-      setParsed({ headers: s.headers ?? [], rows: s.rows ?? [] });
-      setMapping(s.mapping ?? {});
-      setMappedRows(s.mappedRows ?? []);
-      setRowErrors(s.rowErrors ?? []);
+      if (Array.isArray(s.headers) && Array.isArray(s.rows)) {
+        setParsed({ headers: s.headers, rows: s.rows });
+      } else if (Array.isArray(s.headers)) {
+        // keep existing rows; just restore headers if present
+        setParsed((prev) => ({ ...prev, headers: s.headers ?? prev.headers }));
+      }
+
+      if (s.mapping) setMapping(s.mapping);
+      if (Array.isArray(s.mappedRows)) setMappedRows(s.mappedRows);
+      if (Array.isArray(s.rowErrors)) setRowErrors(s.rowErrors);
       if (s.filterMode) setFilterMode(s.filterMode);
       if (typeof s.submitted === "boolean") setSubmitted(s.submitted);
     } catch {}
@@ -331,7 +340,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       inc[h] = headerInclude[h] ?? true;
       const norm = normalizeHeader(h);
       const match = catalog.find(
-        (f) => normalizeHeader(f.label) === norm || normalizeHeader(f.key) === norm
+        (f) => normalizeHeader(f.label) === norm || normalizeHeader(f.key) === norm,
       );
       if (match) {
         h2f[h] = match.key;
@@ -347,32 +356,22 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
 
   // Persist session per-workbook
   useEffect(() => {
+    // localStorage is synchronous and can freeze the UI for large CSVs.
+    // We keep session persistence but store only lightweight info.
+    // (User can re-upload if needed; we avoid writing 10k rows on every keystroke.)
     try {
       const data: SavedSession = {
-        step,
-        rawCsvText,
+        // We intentionally do NOT persist step for large CSV flows,
+        // because without the large payloads it can restore to an unusable UI state.
+        // rawCsvText/rows/mappedRows can be massive; don't persist those by default.
         headers,
-        rows,
         mapping,
-        mappedRows,
-        rowErrors,
         filterMode,
         submitted,
       };
       localStorage.setItem(SESSION, JSON.stringify(data));
     } catch {}
-  }, [
-    SESSION,
-    step,
-    rawCsvText,
-    headers,
-    rows,
-    mapping,
-    mappedRows,
-    rowErrors,
-    filterMode,
-    submitted,
-  ]);
+  }, [SESSION, step, headers, mapping, filterMode, submitted]);
 
   // If expectedColumns is provided (tests rely on it), use that path.
   // Otherwise (e.g., App wants no predefined columns), derive columns from CSV headers + catalog.
@@ -463,7 +462,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       setMapping(auto);
       setStep("map");
     },
-    [readFileText, expectedColumns]
+    [readFileText, expectedColumns],
   );
 
   const requiredColumnsUnmapped = useMemo(() => {
@@ -550,6 +549,8 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     return all;
   }, [mappedRows, rowErrors, filterMode]);
 
+  const activeColumns = displayColumns ?? expectedColumns;
+
   const updateCell = useCallback(
     (rowIndex: number, columnKey: string, value: string) => {
       if (submitted || submitting) return;
@@ -561,11 +562,11 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       setRowErrors((prev) => {
         const copy = [...prev];
         const row = { ...mappedRows[rowIndex], [columnKey]: value };
-        copy[rowIndex] = { rowIndex, errors: validateRow(row, expectedColumns) };
+        copy[rowIndex] = { rowIndex, errors: validateRow(row, activeColumns) };
         return copy;
       });
     },
-    [expectedColumns, mappedRows, submitted, submitting]
+    [activeColumns, mappedRows, submitted, submitting],
   );
 
   const handleSubmit = useCallback(async () => {
@@ -841,7 +842,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                         if (!h) return null;
                         const idx = headers.indexOf(h);
                         return (rows.length > 0 ? rows.slice(0, 9) : []).map((r, i) => (
-                          <li key={i}>{idx >= 0 ? r[idx] ?? "" : ""}</li>
+                          <li key={i}>{idx >= 0 ? (r[idx] ?? "") : ""}</li>
                         ));
                       })()}
                       {rows.length === 0 ? <li>No data</li> : null}
@@ -1098,71 +1099,49 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
             </div>
           </div>
 
-          <div className="cx-sheet">
-            <table className="cx-table">
-              <thead>
-                <tr>
-                  <th className="cx-th">#</th>
-                  {(displayColumns ?? expectedColumns).map((col) => (
-                    <th key={col.key} className="cx-th">
-                      {col.label}{" "}
-                      {col.required ? <span style={{ color: "var(--primary)" }}>*</span> : null}
-                    </th>
+          <TanstackEditableTable
+            data={mappedRows}
+            visibleRowIndexes={visibleRowIndexes}
+            initialPageSize={200}
+            pageSizeOptions={[50, 100, 200, 500, 1000]}
+            columns={activeColumns.map((col) => ({
+              id: col.key,
+              header: col.label,
+              required: col.required,
+              accessor: (row) => (row as any)?.[col.key] ?? "",
+              renderCell: ({ rowIndex }) => {
+                const row = mappedRows[rowIndex];
+                const errors = rowErrors[rowIndex]?.errors ?? [];
+                const errorByCol = new Map(errors.map((e) => [e.columnKey, e.message]));
+                const errMsg = errorByCol.get(col.key);
+                return (
+                  <input
+                    className={`cx-cell${errMsg ? " invalid" : ""}`}
+                    value={(row as any)?.[col.key] ?? ""}
+                    onChange={(e) => updateCell(rowIndex, col.key, e.target.value)}
+                    data-testid={`cell-${rowIndex}-${col.key}`}
+                    disabled={!editing}
+                  />
+                );
+              },
+            }))}
+            trailingHeader="Errors"
+            renderTrailingCell={({ rowIndex }) => {
+              const errors = rowErrors[rowIndex]?.errors ?? [];
+              return errors.length > 0 ? (
+                <ul className="cx-error-list">
+                  {errors.map((e, i) => (
+                    <li key={i}>
+                      {activeColumns.find((c) => c.key === e.columnKey)?.label ?? e.columnKey}:{" "}
+                      {e.message}
+                    </li>
                   ))}
-                  <th className="cx-th">Errors</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRowIndexes.map((idx) => {
-                  const row = mappedRows[idx];
-                  const errors = rowErrors[idx]?.errors ?? [];
-                  const errorByCol = new Map(errors.map((e) => [e.columnKey, e.message]));
-                  return (
-                    <tr key={idx}>
-                      <td className="cx-td">{idx + 1}</td>
-                      {(displayColumns ?? expectedColumns).map((col) => {
-                        const errMsg = errorByCol.get(col.key);
-                        return (
-                          <td key={col.key} className="cx-td">
-                            <input
-                              className={`cx-cell${errMsg ? " invalid" : ""}`}
-                              value={row[col.key] ?? ""}
-                              onChange={(e) => updateCell(idx, col.key, e.target.value)}
-                              data-testid={`cell-${idx}-${col.key}`}
-                              disabled={!editing}
-                            />
-                          </td>
-                        );
-                      })}
-                      <td className="cx-td">
-                        {errors.length > 0 ? (
-                          <ul className="cx-error-list">
-                            {errors.map((e, i) => (
-                              <li key={i}>
-                                {(displayColumns ?? expectedColumns).find(
-                                  (c) => c.key === e.columnKey
-                                )?.label ?? e.columnKey}
-                                : {e.message}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="cx-muted">OK</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {visibleRowIndexes.length === 0 && (
-                  <tr>
-                    <td className="cx-td" colSpan={(displayColumns ?? expectedColumns).length + 2}>
-                      No rows to display.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </ul>
+              ) : (
+                <span className="cx-muted">OK</span>
+              );
+            }}
+          />
 
           <div style={{ display: "none" }} />
         </div>
