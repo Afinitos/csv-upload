@@ -1,7 +1,9 @@
 import { useMemo, useState, useEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import CsvUploadMapper, { type MappedRow, type ColumnMapping } from "./CsvUploadMapper";
 
 export default function App() {
+  const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
   // Multiple workbooks support (persisted)
   const WORKBOOKS_KEY = "csvUpload:workbooks";
   const ACTIVE_KEY = "csvUpload:activeIdx";
@@ -52,9 +54,9 @@ export default function App() {
   // Storage key is scoped per-workbook so that catalog/mapping can differ
   const storageKey = useMemo(() => `csvUploadFieldCatalog:${activeName}`, [activeName]);
 
-  async function handleSubmit(payload: { rows: MappedRow[]; mapping: ColumnMapping }) {
-    try {
-      const res = await fetch("http://localhost:8000/api/uploads/", {
+  const uploadMutation = useMutation({
+    mutationFn: async (payload: { rows: MappedRow[]; mapping: ColumnMapping }) => {
+      const res = await fetch(`${API_BASE}/api/uploads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -67,13 +69,26 @@ export default function App() {
         const text = await res.text().catch(() => "");
         throw new Error(`Backend error ${res.status}: ${text}`);
       }
-      const saved = await res.json();
-      // eslint-disable-next-line no-console
-      console.log("Saved to backend:", saved);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("Failed to save to backend:", err);
-    }
+      return res.json();
+    },
+    retry: 2,
+  });
+
+  const uploadsQuery = useQuery({
+    queryKey: ["uploads", activeName, 0, 10],
+    queryFn: async () => {
+      const res = await fetch(
+        `${API_BASE}/api/uploads?limit=10&offset=0&workbook=${encodeURIComponent(activeName)}`
+      );
+      if (!res.ok) throw new Error(`Failed to load uploads: ${res.status}`);
+      const items = await res.json();
+      const total = Number(res.headers.get("X-Total-Count") ?? items.length);
+      return { items, total } as { items: any[]; total: number };
+    },
+  });
+
+  async function handleSubmit(payload: { rows: MappedRow[]; mapping: ColumnMapping }) {
+    await uploadMutation.mutateAsync(payload);
   }
 
   function addWorkbook() {
@@ -178,9 +193,11 @@ export default function App() {
           <div className="cx-header-actions">
             <span className="cx-muted">{rowCount} Records</span>
             <div className="cx-sep" />
-            <button className="cx-btn">All</button>
-            <button className="cx-btn">Valid</button>
-            <button className="cx-btn">Invalid</button>
+            <span className="cx-muted">
+              {uploadsQuery.isLoading
+                ? "Loading uploads…"
+                : `Saved uploads: ${uploadsQuery.data?.total ?? 0}`}
+            </span>
           </div>
         </div>
 
@@ -191,6 +208,14 @@ export default function App() {
           onSubmit={handleSubmit}
           onRowCountChange={setRowCount}
           storageKey={storageKey}
+          submitting={uploadMutation.isPending}
+          submitError={
+            uploadMutation.isError
+              ? uploadMutation.error instanceof Error
+                ? uploadMutation.error.message
+                : String(uploadMutation.error)
+              : null
+          }
         />
       </main>
     </div>

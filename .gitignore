@@ -3,12 +3,16 @@ node_modules/
 
 # Python venv (local)
 venv/
+.venv/
 
 # Local Django env file (do not commit)
-backend/server/.env
+.env
+.env.*
 
 # Local SQLite (if present from earlier)
-backend/server/db.sqlite3
+db.sqlite3
+data.db
+
 
 # Python caches and artifacts
 __pycache__/

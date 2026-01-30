@@ -34,6 +34,11 @@ export type CsvUploadMapperProps = {
    * Defaults to "csvUploadFieldCatalog" if not provided.
    */
   storageKey?: string;
+  /**
+   * Submission state from parent (e.g., React Query).
+   */
+  submitting?: boolean;
+  submitError?: string | null;
 };
 
 /**
