@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState, useEffect, type FC } from "react";
 import fieldCatalogData from "./fieldCatalog.json";
-import styles from "./CsvUploadMapper.styles";
+import { defaultSchemas } from "./schemas/defaultSchemas";
+import type { CsvSchema, ColumnRule } from "./schemas/types";
+import Papa from "papaparse";
 import type {
   Step,
   ExpectedColumn,
@@ -37,89 +39,23 @@ type SavedSession = {
   submitted?: boolean;
 };
 
-/**
- * Minimal CSV parser supporting:
- * - Delimiter: comma
- * - Newlines: \n or \r\n
- * - Quoted fields with double-quotes and escaped double-quotes ("")
- * - Trims BOM
- */
 function parseCsv(text: string): { headers: string[]; rows: string[][] } {
   // Remove UTF-8 BOM if present
   if (text.charCodeAt(0) === 0xfeff) {
     text = text.slice(1);
   }
 
-  // Auto-detect delimiter between comma (,) and semicolon (;)
-  // We scan the first logical line (until newline outside quotes)
-  let detectInQuotes = false;
-  let commaCount = 0;
-  let semiCount = 0;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const next = text[i + 1];
-    if (ch === '"') {
-      if (detectInQuotes && next === '"') {
-        i++;
-      } else {
-        detectInQuotes = !detectInQuotes;
-      }
-      continue;
-    }
-    if (!detectInQuotes) {
-      if (ch === ",") commaCount++;
-      else if (ch === ";") semiCount++;
-      else if (ch === "\n" || ch === "\r") break;
-    }
-  }
-  const delimiter = semiCount > commaCount ? ";" : ",";
+  // PapaParse auto-detects delimiter if left undefined
+  const result = Papa.parse<string[]>(text, {
+    skipEmptyLines: "greedy",
+  });
 
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
+  const data = (result.data ?? []).filter((r) => Array.isArray(r)) as string[][];
+  if (data.length === 0) return { headers: [], rows: [] };
 
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const next = text[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && next === '"') {
-        // Escaped quote
-        field += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === delimiter && !inQuotes) {
-      row.push(field);
-      field = "";
-    } else if ((char === "\n" || char === "\r") && !inQuotes) {
-      // Handle CRLF: if \r and next is \n, skip the \n
-      if (char === "\r" && next === "\n") {
-        i++;
-      }
-      row.push(field);
-      field = "";
-      rows.push(row);
-      row = [];
-    } else {
-      field += char;
-    }
-  }
-  // Push the last field/row if any content remains
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-
-  if (rows.length === 0) {
-    return { headers: [], rows: [] };
-  }
-
-  const headers = rows[0] ?? [];
-  const dataRows = rows.slice(1);
-  return { headers, rows: dataRows };
+  const headers = (data[0] ?? []).map((x) => String(x ?? ""));
+  const rows = data.slice(1).map((r) => r.map((x) => String(x ?? "")));
+  return { headers, rows };
 }
 
 /**
@@ -160,7 +96,7 @@ function applyMapping(
   rows: string[][],
   headers: string[],
   expected: ExpectedColumn[],
-  mapping: ColumnMapping
+  mapping: ColumnMapping,
 ): MappedRow[] {
   const headerIndex = new Map<string, number>();
   headers.forEach((h, idx) => headerIndex.set(h, idx));
@@ -169,8 +105,8 @@ function applyMapping(
     const obj: MappedRow = {};
     for (const col of expected) {
       const header = mapping[col.key];
-      const idx = header ? headerIndex.get(header) ?? -1 : -1;
-      obj[col.key] = idx >= 0 ? csvRow[idx] ?? "" : "";
+      const idx = header ? (headerIndex.get(header) ?? -1) : -1;
+      obj[col.key] = idx >= 0 ? (csvRow[idx] ?? "") : "";
     }
     return obj;
   });
@@ -197,6 +133,42 @@ function validateRow(row: MappedRow, expected: ExpectedColumn[]): CellError[] {
   return errors;
 }
 
+function ruleToValidator(label: string, rule: ColumnRule): (value: string) => string | null {
+  if (rule.type === "regex") {
+    const re = new RegExp(rule.pattern);
+    return (v: string) =>
+      v.trim() === "" ? null : re.test(v) ? null : (rule.message ?? `${label} is invalid`);
+  }
+  if (rule.type === "enum") {
+    const set = new Set(rule.values);
+    return (v: string) =>
+      v.trim() === ""
+        ? null
+        : set.has(v)
+          ? null
+          : (rule.message ?? `${label} must be one of ${rule.values.join(", ")}`);
+  }
+  return () => null;
+}
+
+function schemaToExpectedColumns(schema: CsvSchema): ExpectedColumn[] {
+  return schema.columns.map((c) => {
+    const base: ExpectedColumn = { key: c.key, label: c.label, required: c.required };
+    if (!c.rules || c.rules.length === 0) return base;
+    const validators = c.rules.map((r) => ruleToValidator(c.label, r));
+    return {
+      ...base,
+      validator: (v) => {
+        for (const fn of validators) {
+          const msg = fn(v);
+          if (msg) return msg;
+        }
+        return null;
+      },
+    };
+  });
+}
+
 /**
  * Styles kept simple inline to keep this component self-contained.
  */
@@ -209,7 +181,7 @@ function toKey(name: string): string {
   const parts = cleaned.split(/\s+/);
   return parts
     .map((p, i) =>
-      i === 0 ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()
+      i === 0 ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(),
     )
     .join("");
 }
@@ -254,12 +226,76 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   submitting = false,
   submitError = null,
 }) => {
+  const [schemas, setSchemas] = useState<CsvSchema[]>(() => defaultSchemas);
+  const [selectedSchemaId, setSelectedSchemaId] = useState<string>(
+    () => defaultSchemas[0]?.id ?? "",
+  );
+  const [newSchemaColumnLabel, setNewSchemaColumnLabel] = useState("");
+  const [newSchemaColumnRequired, setNewSchemaColumnRequired] = useState(false);
+
+  const selectedSchema = useMemo(() => {
+    return schemas.find((s) => s.id === selectedSchemaId) ?? schemas[0] ?? null;
+  }, [schemas, selectedSchemaId]);
+
+  const schemaExpectedColumns = useMemo<ExpectedColumn[]>(() => {
+    return selectedSchema ? schemaToExpectedColumns(selectedSchema) : [];
+  }, [selectedSchema]);
+
+  // We treat the selected schema as the “expected columns” in the UI.
+  // If parent passes expectedColumns (tests), it still works, but schema takes precedence for the wizard UX.
+  const effectiveExpectedColumns = (
+    schemaExpectedColumns.length > 0 ? schemaExpectedColumns : expectedColumns
+  ) as ExpectedColumn[];
+
   const [step, setStep] = useState<Step>(initialCsvText ? "map" : "upload");
   const [rawCsvText, setRawCsvText] = useState<string>(initialCsvText ?? "");
   const [{ headers, rows }, setParsed] = useState<{ headers: string[]; rows: string[][] }>({
     headers: [],
     rows: [],
   });
+
+  const addSchemaColumn = useCallback(() => {
+    if (!selectedSchema) return;
+    const label = newSchemaColumnLabel.trim();
+    if (!label) return;
+    const key = toKey(label);
+    const exists = selectedSchema.columns.some((c) => c.key === key);
+    if (exists) return;
+
+    const updatedSchema: CsvSchema = {
+      ...selectedSchema,
+      columns: [...selectedSchema.columns, { key, label, required: newSchemaColumnRequired }],
+    };
+
+    setSchemas((prev) => prev.map((s) => (s.id === selectedSchemaId ? updatedSchema : s)));
+    const expected = schemaToExpectedColumns(updatedSchema);
+    const newExpected = expected.find((c) => c.key === key);
+    const autoForNew = newExpected ? autoMapColumns([newExpected], headers) : {};
+    setMapping((prev) => ({
+      ...prev,
+      [key]: autoForNew[key] ?? prev[key] ?? null,
+    }));
+    setNewSchemaColumnLabel("");
+    setNewSchemaColumnRequired(false);
+  }, [headers, newSchemaColumnLabel, newSchemaColumnRequired, selectedSchema, selectedSchemaId]);
+
+  const removeSchemaColumn = useCallback(
+    (columnKey: string) => {
+      if (!selectedSchema) return;
+      const updatedSchema: CsvSchema = {
+        ...selectedSchema,
+        columns: selectedSchema.columns.filter((c) => c.key !== columnKey),
+      };
+
+      setSchemas((prev) => prev.map((s) => (s.id === selectedSchemaId ? updatedSchema : s)));
+      setMapping((prev) => {
+        const next = { ...prev };
+        delete next[columnKey];
+        return next;
+      });
+    },
+    [selectedSchema, selectedSchemaId],
+  );
 
   // Mapping state: expected key -> header name (or null)
   const [mapping, setMapping] = useState<ColumnMapping>({});
@@ -291,18 +327,18 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   const [previewHeader, setPreviewHeader] = useState<string | null>(null);
   const creationAllowed = catalog.length === 0;
   const [submitted, setSubmitted] = useState(false);
-  const [editing, setEditing] = useState(true);
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
 
   // Parse CSV when initialCsvText provided
   useEffect(() => {
     if (initialCsvText) {
       const parsed = parseCsv(initialCsvText);
       setParsed(parsed);
-      const auto = autoMapColumns(expectedColumns, parsed.headers);
+      const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
       setMapping(auto);
       setStep("map");
     }
-  }, [initialCsvText, expectedColumns]);
+  }, [initialCsvText, effectiveExpectedColumns]);
 
   // Hydrate saved session per-workbook
   useEffect(() => {
@@ -331,7 +367,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       inc[h] = headerInclude[h] ?? true;
       const norm = normalizeHeader(h);
       const match = catalog.find(
-        (f) => normalizeHeader(f.label) === norm || normalizeHeader(f.key) === norm
+        (f) => normalizeHeader(f.label) === norm || normalizeHeader(f.key) === norm,
       );
       if (match) {
         h2f[h] = match.key;
@@ -377,7 +413,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   // If expectedColumns is provided (tests rely on it), use that path.
   // Otherwise (e.g., App wants no predefined columns), derive columns from CSV headers + catalog.
   const displayColumns = useMemo<ExpectedColumn[] | null>(() => {
-    if ((expectedColumns ?? []).length > 0) return null;
+    if ((effectiveExpectedColumns ?? []).length > 0) return null;
     const includedHeaders = headers.filter((h) => headerInclude[h]);
     if (includedHeaders.length === 0) return null;
     const cols: ExpectedColumn[] = [];
@@ -400,7 +436,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       }
     }
     return cols.length > 0 ? cols : null;
-  }, [expectedColumns, headers, headerInclude, headerToField, headerNewName, catalog]);
+  }, [effectiveExpectedColumns, headers, headerInclude, headerToField, headerNewName, catalog]);
 
   // Save any new fields chosen in mapping into catalog (localStorage)
   const saveCatalog = useCallback(() => {
@@ -459,20 +495,20 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       setRawCsvText(text);
       const parsed = parseCsv(text);
       setParsed(parsed);
-      const auto = autoMapColumns(expectedColumns, parsed.headers);
+      const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
       setMapping(auto);
       setStep("map");
     },
-    [readFileText, expectedColumns]
+    [readFileText, effectiveExpectedColumns],
   );
 
   const requiredColumnsUnmapped = useMemo(() => {
-    return expectedColumns.filter((c) => c.required && !mapping[c.key]);
-  }, [expectedColumns, mapping]);
+    return effectiveExpectedColumns.filter((c) => c.required && !mapping[c.key]);
+  }, [effectiveExpectedColumns, mapping]);
 
   const handleApplyMapping = useCallback(() => {
     // Determine which columns to use: header-based mapping if available, else expectedColumns mapping
-    const cols: ExpectedColumn[] = displayColumns ?? expectedColumns;
+    const cols: ExpectedColumn[] = displayColumns ?? effectiveExpectedColumns;
 
     // Build column mapping: key -> header
     const revMap: Record<string, string | null> = {};
@@ -489,7 +525,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       }
     } else {
       // use existing expected mapping state
-      for (const col of expectedColumns) {
+      for (const col of effectiveExpectedColumns) {
         revMap[col.key] = mapping[col.key] ?? null;
       }
     }
@@ -515,7 +551,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   }, [
     rows,
     headers,
-    expectedColumns,
+    effectiveExpectedColumns,
     mapping,
     displayColumns,
     headerInclude,
@@ -550,23 +586,43 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     return all;
   }, [mappedRows, rowErrors, filterMode]);
 
-  const updateCell = useCallback(
-    (rowIndex: number, columnKey: string, value: string) => {
-      if (submitted || submitting) return;
-      setMappedRows((prev) => {
-        const copy = [...prev];
-        copy[rowIndex] = { ...copy[rowIndex], [columnKey]: value };
-        return copy;
-      });
-      setRowErrors((prev) => {
-        const copy = [...prev];
-        const row = { ...mappedRows[rowIndex], [columnKey]: value };
-        copy[rowIndex] = { rowIndex, errors: validateRow(row, expectedColumns) };
-        return copy;
-      });
-    },
-    [expectedColumns, mappedRows, submitted, submitting]
-  );
+  const allVisibleSelected = useMemo(() => {
+    return visibleRowIndexes.length > 0 && visibleRowIndexes.every((idx) => selectedRows.has(idx));
+  }, [visibleRowIndexes, selectedRows]);
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleRowIndexes.forEach((idx) => next.delete(idx));
+      } else {
+        visibleRowIndexes.forEach((idx) => next.add(idx));
+      }
+      return next;
+    });
+  }, [allVisibleSelected, visibleRowIndexes]);
+
+  const toggleRowSelected = useCallback((idx: number) => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
+  }, []);
+
+  const deleteSelectedRows = useCallback(() => {
+    if (selectedRows.size === 0 || submitted || submitting) return;
+    setMappedRows((prev) => prev.filter((_, idx) => !selectedRows.has(idx)));
+    setRowErrors((prev) => {
+      const remaining = prev.filter((_, idx) => !selectedRows.has(idx));
+      return remaining.map((row, newIndex) => ({ ...row, rowIndex: newIndex }));
+    });
+    setSelectedRows(new Set());
+  }, [selectedRows, submitted, submitting]);
 
   const handleSubmit = useCallback(async () => {
     if (!allowSubmitWithErrors && invalidCount > 0) {
@@ -577,7 +633,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   }, [allowSubmitWithErrors, invalidCount, onSubmit, mappedRows, mapping]);
 
   const exportInvalidRows = useCallback(() => {
-    const cols = displayColumns ?? expectedColumns;
+    const cols = displayColumns ?? effectiveExpectedColumns;
     const invalid = rowErrors.filter((r) => r.errors.length > 0).map((r) => r.rowIndex);
     const csvRows: string[] = [];
     const headers = [...cols.map((c) => c.label), "Errors"];
@@ -603,10 +659,10 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     a.download = "invalid_rows.csv";
     a.click();
     URL.revokeObjectURL(url);
-  }, [displayColumns, expectedColumns, mappedRows, rowErrors]);
+  }, [displayColumns, effectiveExpectedColumns, mappedRows, rowErrors]);
 
   const exportAllRows = useCallback(() => {
-    const cols = displayColumns ?? expectedColumns;
+    const cols = displayColumns ?? effectiveExpectedColumns;
     const headers = cols.map((c) => c.label);
     const escape = (v: string) => {
       const s = v ?? "";
@@ -628,7 +684,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     a.download = "workbook.csv";
     a.click();
     URL.revokeObjectURL(url);
-  }, [displayColumns, expectedColumns, mappedRows]);
+  }, [displayColumns, effectiveExpectedColumns, mappedRows]);
 
   const resetToUpload = useCallback(() => {
     setStep("upload");
@@ -648,19 +704,123 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     return !anyUnmappedRequired;
   }, [displayColumns, anyUnmappedRequired]);
 
+  const schemaSelector = (
+    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4">
+      <div className="text-xs font-semibold tracking-wider text-gray-500">SCHEMA</div>
+      <div className="flex w-full flex-col gap-2">
+        <select
+          className="h-10 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+          value={selectedSchemaId}
+          onChange={(e) => {
+            const id = e.target.value;
+            setSelectedSchemaId(id);
+
+            // reset mapping when schema changes
+            const schema = schemas.find((s) => s.id === id) ?? schemas[0];
+            if (schema) {
+              setMapping(autoMapColumns(schemaToExpectedColumns(schema), headers));
+            } else {
+              setMapping({});
+            }
+          }}
+          data-testid="schema-select"
+        >
+          {schemas.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <div className="text-xs text-gray-500">
+          {selectedSchema?.description ?? "Select which columns are expected in the CSV."}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            className="h-9 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
+            onClick={() => {
+              const name = window.prompt("New schema name");
+              if (!name) return;
+              const id = `custom_${Date.now()}`;
+              const base = selectedSchema ?? schemas[0];
+              const copy: CsvSchema = {
+                id,
+                name,
+                description: "Custom schema (copied)",
+                columns: base ? base.columns.map((c) => ({ ...c })) : [],
+              };
+              setSchemas((prev) => [...prev, copy]);
+              setSelectedSchemaId(id);
+            }}
+            type="button"
+          >
+            + Add schema
+          </button>
+          <span className="text-xs text-gray-500">(for now stored only in memory)</span>
+        </div>
+      </div>
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+        <div className="mb-2 text-xs font-semibold tracking-wider text-gray-500">
+          EXPECTED COLUMNS
+        </div>
+        <div className="flex flex-col gap-2">
+          {(selectedSchema?.columns ?? []).length === 0 ? (
+            <div className="text-xs text-gray-500">No columns defined yet.</div>
+          ) : (
+            (selectedSchema?.columns ?? []).map((col) => (
+              <div key={col.key} className="flex items-center justify-between gap-2">
+                <span className="text-sm text-gray-900">
+                  {col.label}
+                  {col.required ? <span className="ml-1 text-red-600">*</span> : null}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] uppercase text-gray-400">{col.key}</span>
+                  <button
+                    className="text-xs text-red-500 hover:text-red-700"
+                    type="button"
+                    onClick={() => removeSchemaColumn(col.key)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_140px_120px]">
+          <input
+            className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+            value={newSchemaColumnLabel}
+            onChange={(e) => setNewSchemaColumnLabel(e.target.value)}
+            placeholder="New column label"
+          />
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-2.5 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={newSchemaColumnRequired}
+              onChange={(e) => setNewSchemaColumnRequired(e.target.checked)}
+            />
+            Required
+          </label>
+          <button
+            className="h-9 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
+            onClick={addSchemaColumn}
+            type="button"
+            disabled={!newSchemaColumnLabel.trim()}
+          >
+            + Add column
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div
-      className={className}
-      style={{ ...styles.container, ...style }}
-      data-testid="csv-upload-mapper"
-    >
+    <div className={className} style={style} data-testid="csv-upload-mapper">
       {step === "upload" && (
-        <div className="cx-page">
-          <div className="cx-panel" style={{ textAlign: "center", padding: 32 }}>
-            <div className="cx-h1" style={{ marginBottom: 8 }}>
-              Import
-            </div>
-            <div className="cx-subtle" style={{ marginBottom: 16 }}>
+        <div className="p-4">
+          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+            <div className="mb-2 text-lg font-bold text-gray-900">Import</div>
+            <div className="mb-4 text-xs text-gray-500">
               Drag and drop or upload a file to get started
             </div>
 
@@ -677,19 +837,13 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 setRawCsvText(text);
                 const parsed = parseCsv(text);
                 setParsed(parsed);
-                const auto = autoMapColumns(expectedColumns, parsed.headers);
+                const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
                 setMapping(auto);
                 setStep("map");
               }}
-              style={{
-                border: "2px dashed var(--border)",
-                borderRadius: 12,
-                padding: 24,
-                background: "#fff",
-                marginBottom: 16,
-              }}
+              className="mb-4 rounded-xl border-2 border-dashed border-gray-200 bg-white p-6"
             >
-              <div className="cx-subtle">Drop CSV here</div>
+              <div className="text-xs text-gray-500">Drop CSV here</div>
             </div>
 
             <input
@@ -700,45 +854,47 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
               onChange={handleFileChange}
               style={{ display: "none" }}
             />
-            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            <div className="flex justify-center gap-2">
               <label htmlFor="upload-input">
-                <span className="cx-btn cx-btn-big cx-btn-outline" role="button">
+                <span
+                  className="inline-flex h-11 w-[200px] items-center justify-center gap-2 rounded-xl border border-red-500 bg-white px-4 text-sm font-semibold text-red-500 hover:bg-red-50"
+                  role="button"
+                >
                   <i className="fa-solid fa-upload cx-btn-icon" aria-hidden="true"></i>
                   Upload file
                 </span>
               </label>
-              <button
-                className="cx-btn cx-btn-big cx-btn-outline"
-                onClick={() => {
-                  setParsed({ headers: [], rows: [] });
-                  setStep("map");
-                }}
-              >
-                <i className="fa-solid fa-pen-to-square cx-btn-icon" aria-hidden="true"></i>
-                Manually enter data
-              </button>
             </div>
           </div>
         </div>
       )}
 
       {step === "map" && (
-        <div style={styles.panel}>
-          <div style={styles.header}>2. Map CSV columns to expected fields</div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 text-base font-semibold text-gray-900">
+            2. Map CSV columns to expected fields
+          </div>
+          {schemaSelector}
           {headers.length === 0 ? (
             <div style={{ color: "#d32f2f" }}>No headers detected. Check your CSV file.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="flex flex-col gap-2">
               {/* Top actions like screenshots */}
-              <div className="cx-topbar">
-                <button className="cx-btn" onClick={resetToUpload}>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
+                  onClick={resetToUpload}
+                >
                   Exit
                 </button>
-                <button className="cx-btn" onClick={() => setStep("upload")}>
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
+                  onClick={() => setStep("upload")}
+                >
                   Back
                 </button>
                 <button
-                  className="cx-btn cx-btn-primary"
+                  className="h-8 rounded-lg border border-red-500 bg-red-500 px-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={handleApplyMapping}
                   disabled={!canContinue}
                   data-testid="apply-mapping"
@@ -748,230 +904,113 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
               </div>
 
               {/* Styled two-column layout */}
-              <div className="cx-map-layout">
-                {/* Left: mapping rows */}
-                <div className="cx-map-left">
-                  <div className="cx-map-head">
-                    <div className="cx-map-title">Review and confirm each mapping choice</div>
-                    <div className="cx-counters">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
+                {/* Left: expected-to-uploaded mapping rows */}
+                <div className="rounded-xl border border-gray-200 bg-white p-3">
+                  <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
+                    <div className="font-semibold text-gray-900">
+                      Review and confirm each mapping choice
+                    </div>
+                    <div className="flex gap-6 text-xs text-gray-500">
                       <div>
-                        INCOMING FIELDS{" "}
-                        <strong>{headers.filter((h) => headerInclude[h]).length}</strong> of{" "}
-                        <strong>{headers.length}</strong>
+                        EXPECTED COLUMNS{" "}
+                        <span className="ml-1 font-semibold text-gray-900">
+                          {effectiveExpectedColumns.length}
+                        </span>{" "}
+                        required of{" "}
+                        <span className="font-semibold text-gray-900">
+                          {effectiveExpectedColumns.filter((c) => c.required).length}
+                        </span>
                       </div>
                       <div>
-                        DESTINATION FIELDS{" "}
-                        <strong>{(displayColumns ?? expectedColumns).length}</strong>
+                        UPLOADED COLUMNS{" "}
+                        <span className="ml-1 font-semibold text-gray-900">{headers.length}</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="cx-map-rows">
-                    {headers.map((h) => {
-                      const sel = headerToField[h] ?? (catalog.length === 0 ? "__new__" : "");
-                      const included = headerInclude[h] ?? true;
+                  <div className="flex flex-col gap-2.5">
+                    {effectiveExpectedColumns.map((col) => {
+                      const mappedHeader = mapping[col.key] ?? "";
                       return (
                         <div
-                          key={h}
-                          className="cx-map-row"
-                          onMouseEnter={() => setPreviewHeader(h)}
+                          key={col.key}
+                          className="grid grid-cols-1 items-center gap-2 rounded-xl border border-gray-200 bg-white p-2.5 lg:grid-cols-[1fr_24px_360px]"
+                          onMouseEnter={() => setPreviewHeader(mappedHeader || null)}
                         >
-                          <div className="cx-chip">{h}</div>
-                          <div className="cx-arrow">→</div>
+                          <div className="inline-flex w-fit items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-[13px] font-semibold text-gray-700">
+                            <span>{col.label}</span>
+                            {col.required ? <span className="text-red-600">*</span> : null}
+                          </div>
+                          <div className="text-center text-sm text-gray-500">→</div>
                           <div>
                             <select
-                              className="cx-select"
-                              value={sel}
-                              onChange={(e) =>
-                                setHeaderToField((prev) => ({ ...prev, [h]: e.target.value }))
-                              }
-                              disabled={!included}
+                              className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                              value={mappedHeader}
+                              onChange={(e) => {
+                                const val = e.target.value || null;
+                                setMapping((prev) => ({ ...prev, [col.key]: val }));
+                              }}
+                              data-testid={`mapping-select-${col.key}`}
                             >
-                              {catalog.length === 0 ? (
-                                <option value="__new__">Create new…</option>
-                              ) : null}
-                              {catalog.map((f) => (
-                                <option key={f.key} value={f.key}>
-                                  {f.label}
+                              <option value="">-- Unmapped --</option>
+                              {headers.map((h) => (
+                                <option key={h} value={h}>
+                                  {h}
                                 </option>
                               ))}
-                              {!catalog.length && <></>}
                             </select>
-                            {sel === "__new__" && catalog.length === 0 ? (
-                              <input
-                                className="cx-input"
-                                style={{ marginTop: 6 }}
-                                value={headerNewName[h] ?? h}
-                                onChange={(e) =>
-                                  setHeaderNewName((prev) => ({ ...prev, [h]: e.target.value }))
-                                }
-                                placeholder="Field name (suggested from CSV header)"
-                              />
+                            {!mappedHeader && col.required ? (
+                              <span className="mt-1.5 inline-flex items-center rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-600">
+                                Required
+                              </span>
                             ) : null}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-
-                  {catalog.length === 0 ? (
-                    <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-                      <button className="cx-btn" onClick={saveCatalog}>
-                        Save selected fields to catalog
-                      </button>
-                      <span className="cx-muted">
-                        New fields are stored locally (browser localStorage). Existing fields are
-                        offered for reuse next time.
-                      </span>
-                    </div>
-                  ) : null}
                 </div>
 
                 {/* Right: preview card */}
-                <div className="cx-map-right">
-                  <div className="cx-card">
-                    <div className="cx-card-title">
-                      Data preview for{" "}
-                      {previewHeader ?? headers.find((h) => headerInclude[h]) ?? headers[0] ?? "—"}
+                <div className="lg:sticky lg:top-4">
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                    <div className="mb-2 font-semibold text-gray-900">
+                      Data preview for {previewHeader ?? headers[0] ?? "—"}
                     </div>
-                    <ul className="cx-list">
+                    <ul className="m-0 list-none p-0">
                       {(() => {
-                        const h =
-                          previewHeader ?? headers.find((x) => headerInclude[x]) ?? headers[0];
+                        const h = previewHeader ?? headers[0];
                         if (!h) return null;
                         const idx = headers.indexOf(h);
-                        return (rows.length > 0 ? rows.slice(0, 9) : []).map((r, i) => (
-                          <li key={i}>{idx >= 0 ? r[idx] ?? "" : ""}</li>
-                        ));
+                        return (rows.length > 0 ? rows.slice(0, 9) : []).map((r, i) => {
+                          return (
+                            <li
+                              key={i}
+                              className="border-b border-gray-200 px-1.5 py-2 text-sm text-gray-900 last:border-b-0"
+                            >
+                              {idx >= 0 ? (r[idx] ?? "") : ""}
+                            </li>
+                          );
+                        });
                       })()}
-                      {rows.length === 0 ? <li>No data</li> : null}
+                      {rows.length === 0 ? (
+                        <li className="px-1.5 py-2 text-sm text-gray-500">No data</li>
+                      ) : null}
                     </ul>
                   </div>
                 </div>
               </div>
 
-              {/* Existing mapping by expected columns */}
-              {expectedColumns.map((col) => (
-                <div key={col.key} style={styles.row}>
-                  <label style={{ minWidth: 220, fontWeight: 500 }} htmlFor={`map-${col.key}`}>
-                    {col.label} {col.required ? <span style={{ color: "#d32f2f" }}>*</span> : null}
-                  </label>
-                  <select
-                    id={`map-${col.key}`}
-                    style={styles.select}
-                    value={mapping[col.key] ?? ""}
-                    onChange={(e) => {
-                      const val = e.target.value || null;
-                      setMapping((prev) => ({ ...prev, [col.key]: val }));
-                    }}
-                    data-testid={`mapping-select-${col.key}`}
-                  >
-                    <option value="">-- Unmapped --</option>
-                    {headers.map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
-                  {!mapping[col.key] && col.required ? (
-                    <span style={styles.badgeError}>Required</span>
-                  ) : null}
-                </div>
-              ))}
-
-              {/* New: mapping by CSV headers to catalog or new fields (legacy table hidden) */}
-              <div style={{ display: "none" }}>
-                <div style={styles.header}>
-                  Map by CSV header (choose existing field or create new)
-                </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th style={styles.th}>Include</th>
-                        <th style={styles.th}>CSV Header</th>
-                        <th style={styles.th}>Map to</th>
-                        <th style={styles.th}>New field name</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {headers.map((h) => {
-                        const sel = headerToField[h] ?? "__new__";
-                        const included = headerInclude[h] ?? true;
-                        return (
-                          <tr key={h}>
-                            <td style={styles.td}>
-                              <input
-                                type="checkbox"
-                                checked={included}
-                                onChange={(e) =>
-                                  setHeaderInclude((prev) => ({ ...prev, [h]: e.target.checked }))
-                                }
-                              />
-                            </td>
-                            <td style={{ ...styles.td, fontWeight: 500 }}>{h}</td>
-                            <td style={styles.td}>
-                              <select
-                                value={sel}
-                                onChange={(e) =>
-                                  setHeaderToField((prev) => ({ ...prev, [h]: e.target.value }))
-                                }
-                                style={styles.select}
-                              >
-                                {creationAllowed ? (
-                                  <option value="__new__">Create new…</option>
-                                ) : null}
-                                {catalog.map((f) => (
-                                  <option key={f.key} value={f.key}>
-                                    {f.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td style={styles.td}>
-                              {sel === "__new__" && creationAllowed ? (
-                                <input
-                                  style={styles.input}
-                                  value={headerNewName[h] ?? h}
-                                  onChange={(e) =>
-                                    setHeaderNewName((prev) => ({ ...prev, [h]: e.target.value }))
-                                  }
-                                  placeholder="Field name (suggested from CSV header)"
-                                />
-                              ) : (
-                                <span style={{ color: "#666" }}>—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {creationAllowed ? (
-                  <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-                    <button style={styles.button} onClick={saveCatalog}>
-                      Save selected fields to catalog
-                    </button>
-                    <span style={{ color: "#666", fontSize: 12 }}>
-                      New fields are stored locally (browser localStorage). Existing fields are
-                      offered for reuse.
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-
               {/* CSV preview (legacy table hidden) */}
               <div style={{ display: "none" }}>
-                <div style={styles.header}>CSV preview</div>
+                <div>CSV preview</div>
                 <div style={{ overflowX: "auto" }}>
-                  <table style={styles.table}>
+                  <table>
                     <thead>
                       <tr>
                         {headers.map((h) => (
-                          <th key={h} style={styles.th}>
-                            {h}
-                          </th>
+                          <th key={h}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -979,17 +1018,13 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                       {(rows.length > 0 ? rows.slice(0, 10) : []).map((r, i) => (
                         <tr key={i}>
                           {headers.map((_, j) => (
-                            <td key={j} style={styles.td}>
-                              {r[j] ?? ""}
-                            </td>
+                            <td key={j}>{r[j] ?? ""}</td>
                           ))}
                         </tr>
                       ))}
                       {rows.length === 0 && (
                         <tr>
-                          <td style={styles.td} colSpan={headers.length}>
-                            No rows
-                          </td>
+                          <td colSpan={headers.length}>No rows</td>
                         </tr>
                       )}
                     </tbody>
@@ -1007,78 +1042,82 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       )}
 
       {step === "edit" && (
-        <div style={styles.panel}>
-          <div style={styles.header}>3. Validate and edit data</div>
-          <div className="cx-subtle">
-            {invalidRowCount > 0 ? `${invalidRowCount} validation issue(s)` : "All rows valid"}
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-base font-semibold text-gray-900">3. Validate data</div>
+            <div className="text-xs text-gray-500">
+              {invalidRowCount > 0 ? `${invalidRowCount} invalid row(s)` : "No validation issues"}
+            </div>
           </div>
-          <div className="cx-topbar" style={{ justifyContent: "space-between" }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
               <button
-                className="cx-btn"
+                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
                 onClick={() => setFilterMode("all")}
                 aria-pressed={filterMode === "all"}
               >
                 All ({rowErrors.length})
               </button>
               <button
-                className="cx-btn"
+                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
                 onClick={() => setFilterMode("valid")}
                 aria-pressed={filterMode === "valid"}
               >
                 Valid ({validRowCount})
               </button>
               <button
-                className="cx-btn"
+                className={
+                  "h-8 rounded-lg border bg-white px-2.5 text-sm hover:bg-gray-50 " +
+                  (filterMode === "invalid" ? "border-red-500 text-red-600" : "border-gray-300")
+                }
                 onClick={() => setFilterMode("invalid")}
                 aria-pressed={filterMode === "invalid"}
-                style={{ borderColor: "var(--primary)", color: "var(--primary)" }}
               >
                 Invalid ({invalidRowCount})
               </button>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={filterMode === "invalid"}
-                  onChange={(e) => setFilterMode(e.target.checked ? "invalid" : "all")}
-                  aria-label="Show invalid rows only"
-                />
-                <span>Show invalid rows only</span>
-              </label>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <input
-                  type="checkbox"
-                  checked={editing}
-                  onChange={(e) => setEditing(e.target.checked)}
-                  aria-label="Enable editing"
-                />
-                <span>Enable editing</span>
-              </label>
-              <button className="cx-btn" onClick={exportAllRows} disabled={submitting}>
+              <button
+                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={deleteSelectedRows}
+                disabled={selectedRows.size === 0 || submitted || submitting}
+              >
+                Delete selected ({selectedRows.size})
+              </button>
+              <button
+                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={exportAllRows}
+                disabled={submitting}
+              >
                 Export workbook (CSV)
               </button>
               {invalidRowCount > 0 ? (
-                <button className="cx-btn" onClick={exportInvalidRows} disabled={submitting}>
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={exportInvalidRows}
+                  disabled={submitting}
+                >
                   Export invalid (CSV)
                 </button>
               ) : null}
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div className="flex items-center gap-2">
               <button
-                className="cx-btn"
+                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => setStep("map")}
                 disabled={submitted || submitting}
               >
                 Back
               </button>
               {submitted ? (
-                <button className="cx-btn" disabled>
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm"
+                  disabled
+                >
                   Submitted
                 </button>
               ) : (
                 <>
                   <button
-                    className="cx-btn cx-btn-primary"
+                    className="h-8 rounded-lg border border-red-500 bg-red-500 px-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={handleSubmit}
                     disabled={(invalidRowCount > 0 && !allowSubmitWithErrors) || submitting}
                     data-testid="submit-button"
@@ -1087,8 +1126,12 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   </button>
                   {submitError ? (
                     <>
-                      <span style={{ color: "#d32f2f" }}>{submitError}</span>
-                      <button className="cx-btn" onClick={handleSubmit} disabled={submitting}>
+                      <span className="text-sm text-red-600">{submitError}</span>
+                      <button
+                        className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={handleSubmit}
+                        disabled={submitting}
+                      >
                         Retry
                       </button>
                     </>
@@ -1098,18 +1141,36 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
             </div>
           </div>
 
-          <div className="cx-sheet">
-            <table className="cx-table">
-              <thead>
+          <div className="mt-3 max-h-[420px] overflow-auto rounded-lg border border-gray-200 bg-white">
+            <table className="w-full border-collapse">
+              <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="cx-th">#</th>
-                  {(displayColumns ?? expectedColumns).map((col) => (
-                    <th key={col.key} className="cx-th">
+                  <th className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        aria-label="Select all visible rows"
+                      />
+                      <span>Select</span>
+                    </label>
+                  </th>
+                  <th className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
+                    #
+                  </th>
+                  {(displayColumns ?? effectiveExpectedColumns).map((col) => (
+                    <th
+                      key={col.key}
+                      className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500"
+                    >
                       {col.label}{" "}
                       {col.required ? <span style={{ color: "var(--primary)" }}>*</span> : null}
                     </th>
                   ))}
-                  <th className="cx-th">Errors</th>
+                  <th className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
+                    Errors
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -1119,35 +1180,48 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   const errorByCol = new Map(errors.map((e) => [e.columnKey, e.message]));
                   return (
                     <tr key={idx}>
-                      <td className="cx-td">{idx + 1}</td>
-                      {(displayColumns ?? expectedColumns).map((col) => {
+                      <td className="border-b border-gray-200 px-2.5 py-2 align-top">
+                        <input
+                          type="checkbox"
+                          checked={selectedRows.has(idx)}
+                          onChange={() => toggleRowSelected(idx)}
+                          aria-label={`Select row ${idx + 1}`}
+                        />
+                      </td>
+                      <td className="border-b border-gray-200 px-2.5 py-2 align-top">{idx + 1}</td>
+                      {(displayColumns ?? effectiveExpectedColumns).map((col) => {
                         const errMsg = errorByCol.get(col.key);
                         return (
-                          <td key={col.key} className="cx-td">
-                            <input
-                              className={`cx-cell${errMsg ? " invalid" : ""}`}
-                              value={row[col.key] ?? ""}
-                              onChange={(e) => updateCell(idx, col.key, e.target.value)}
+                          <td
+                            key={col.key}
+                            className="border-b border-gray-200 px-2.5 py-2 align-top"
+                          >
+                            <div
+                              className={
+                                "min-h-9 w-full rounded-md border px-2 py-1 text-sm " +
+                                (errMsg ? "border-red-500 bg-red-50" : "border-gray-300 bg-white")
+                              }
                               data-testid={`cell-${idx}-${col.key}`}
-                              disabled={!editing}
-                            />
+                            >
+                              {row[col.key] ?? ""}
+                            </div>
                           </td>
                         );
                       })}
-                      <td className="cx-td">
+                      <td className="border-b border-gray-200 px-2.5 py-2 align-top">
                         {errors.length > 0 ? (
-                          <ul className="cx-error-list">
+                          <ul className="m-0 list-disc pl-5 text-xs text-red-600">
                             {errors.map((e, i) => (
                               <li key={i}>
-                                {(displayColumns ?? expectedColumns).find(
-                                  (c) => c.key === e.columnKey
+                                {(displayColumns ?? effectiveExpectedColumns).find(
+                                  (c) => c.key === e.columnKey,
                                 )?.label ?? e.columnKey}
                                 : {e.message}
                               </li>
                             ))}
                           </ul>
                         ) : (
-                          <span className="cx-muted">OK</span>
+                          <span className="text-xs text-gray-500">OK</span>
                         )}
                       </td>
                     </tr>
@@ -1155,7 +1229,10 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 })}
                 {visibleRowIndexes.length === 0 && (
                   <tr>
-                    <td className="cx-td" colSpan={(displayColumns ?? expectedColumns).length + 2}>
+                    <td
+                      className="border-b border-gray-200 px-2.5 py-2 align-top"
+                      colSpan={(displayColumns ?? effectiveExpectedColumns).length + 3}
+                    >
                       No rows to display.
                     </td>
                   </tr>

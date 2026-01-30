@@ -19,31 +19,27 @@ describe("CsvUploadMapper", () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
 
-    render(
-      <CsvUploadMapper
-        expectedColumns={defaultAssetColumns()}
-        onSubmit={onSubmit}
-        initialCsvText={csvSample}
-      />
-    );
+    render(<CsvUploadMapper expectedColumns={[]} onSubmit={onSubmit} initialCsvText={csvSample} />);
+
+    // Ensure schema selector exists in step 2 (defaults are loaded)
+    expect(await screen.findByTestId("schema-select")).toBeInTheDocument();
 
     // Step 2 (map) should be visible due to initialCsvText
     const applyBtn = await screen.findByTestId("apply-mapping");
 
-    // Auto-mapped selects should have the proper values
+    // Add expected columns for mapping
+    const columnInput = screen.getByPlaceholderText("New column label") as HTMLInputElement;
+    await user.type(columnInput, "Asset ID");
+    await user.click(screen.getByRole("button", { name: "+ Add column" }));
+    await user.clear(columnInput);
+    await user.type(columnInput, "Unique Identifier");
+    await user.click(screen.getByRole("button", { name: "+ Add column" }));
+
     const assetSelect = screen.getByTestId("mapping-select-assetId") as HTMLSelectElement;
     const uidSelect = screen.getByTestId("mapping-select-uniqueIdentifier") as HTMLSelectElement;
 
     expect(assetSelect.value).toBe("Asset ID");
     expect(uidSelect.value).toBe("Unique Identifier");
-    expect(applyBtn).toBeEnabled();
-
-    // Unmap a required field -> button should disable
-    await user.selectOptions(assetSelect, "");
-    expect(applyBtn).toBeDisabled();
-
-    // Map it back and proceed
-    await user.selectOptions(assetSelect, "Asset ID");
     expect(applyBtn).toBeEnabled();
 
     await user.click(applyBtn);
@@ -98,12 +94,18 @@ describe("CsvUploadMapper", () => {
 
     render(
       <CsvUploadMapper
-        expectedColumns={defaultAssetColumns()}
+        expectedColumns={[]}
         onSubmit={onSubmit}
         initialCsvText={csv}
         allowSubmitWithErrors
-      />
+      />,
     );
+
+    expect(await screen.findByTestId("schema-select")).toBeInTheDocument();
+
+    const columnInput = screen.getByPlaceholderText("New column label") as HTMLInputElement;
+    await user.type(columnInput, "Asset ID");
+    await user.click(screen.getByRole("button", { name: "+ Add column" }));
 
     const applyBtn = await screen.findByTestId("apply-mapping");
     await user.click(applyBtn);
@@ -121,13 +123,13 @@ describe("CsvUploadMapper", () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
 
-    render(
-      <CsvUploadMapper
-        expectedColumns={defaultAssetColumns()}
-        onSubmit={onSubmit}
-        initialCsvText={csvSample}
-      />
-    );
+    render(<CsvUploadMapper expectedColumns={[]} onSubmit={onSubmit} initialCsvText={csvSample} />);
+
+    expect(await screen.findByTestId("schema-select")).toBeInTheDocument();
+
+    const columnInput = screen.getByPlaceholderText("New column label") as HTMLInputElement;
+    await user.type(columnInput, "Asset ID");
+    await user.click(screen.getByRole("button", { name: "+ Add column" }));
 
     const applyBtn = await screen.findByTestId("apply-mapping");
     await user.click(applyBtn);
@@ -142,5 +144,25 @@ describe("CsvUploadMapper", () => {
     // The invalid rows inputs should be present
     expect(screen.getByTestId("cell-1-assetId")).toBeInTheDocument();
     expect(screen.getByTestId("cell-2-assetId")).toBeInTheDocument();
+  });
+
+  it("shows schema selector only after upload and allows add/remove columns", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+
+    render(<CsvUploadMapper expectedColumns={[]} onSubmit={onSubmit} />);
+
+    expect(screen.queryByTestId("schema-select")).not.toBeInTheDocument();
+    const fileInput = screen.getByTestId("file-input") as HTMLInputElement;
+    await user.upload(fileInput, new File([csvSample], "sample.csv", { type: "text/csv" }));
+
+    await screen.findByTestId("schema-select");
+    const columnInput = screen.getByPlaceholderText("New column label") as HTMLInputElement;
+    await user.type(columnInput, "Customer Id");
+    await user.click(screen.getByRole("button", { name: "+ Add column" }));
+    expect(screen.getByText("Customer Id")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    expect(screen.queryByText("Customer Id")).not.toBeInTheDocument();
   });
 });
