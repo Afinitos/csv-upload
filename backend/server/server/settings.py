@@ -132,11 +132,17 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# CORS configuration for Vite dev servers
+# CORS configuration for Vite dev servers (localhost only)
+# Allow any localhost port during development so you don't have to chase ports.
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    "http://localhost:5174",
+    "http://127.0.0.1:5173",
 ]
+
+# Needed for modern browsers when calling a private network address (127.0.0.1)
+# from a local dev origin (localhost:5173 etc.)
+CORS_ALLOW_PRIVATE_NETWORK = True
 
 # DRF: allow anonymous access (dev) and no session auth to avoid CSRF during JSON POST
 REST_FRAMEWORK = {

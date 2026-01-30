@@ -34,3 +34,12 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Vanna (generated query results / cache)
+.vanna/
+vanna_files/
+**/vanna_files/
+
+# Generated query result folders/files in project root
+query_results_*.csv
+/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/
