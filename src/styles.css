@@ -1,0 +1,466 @@
+:root {
+  --bg: #f7f7f9;
+  --panel: #ffffff;
+  --muted: #6b7280;
+  --text: #111827;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --primary: #ef4444; /* red like screenshots */
+  --primary-600: #dc2626;
+  --success: #2e7d32;
+  --chip-bg: #f3f4f6;
+  --chip-text: #374151;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 16px rgba(0, 0, 0, 0.06);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* App container helpers */
+.cx-page {
+  padding: 16px;
+}
+
+/* Panel */
+.cx-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+/* Headings */
+.cx-h1 {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 12px 0;
+}
+.cx-subtle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Map layout */
+.cx-map-layout {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+.cx-map-left {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.cx-map-head {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.cx-map-title {
+  font-weight: 600;
+}
+.cx-counters {
+  display: flex;
+  gap: 24px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.cx-counters strong {
+  color: var(--text);
+  margin-left: 6px;
+}
+
+/* Rows list */
+.cx-map-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cx-map-row {
+  display: grid;
+  grid-template-columns: 1fr 24px 360px;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+}
+.cx-map-row:hover {
+  border-color: var(--border-strong);
+}
+.cx-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.cx-arrow {
+  text-align: center;
+  color: var(--muted);
+}
+
+/* Select/input */
+.cx-select,
+.cx-input {
+  height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+}
+.cx-select:focus,
+.cx-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+/* Right preview card */
+.cx-map-right {
+  position: sticky;
+  top: 16px;
+}
+.cx-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+}
+.cx-card-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.cx-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.cx-list li {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 6px;
+  font-size: 14px;
+}
+.cx-list li:last-child {
+  border-bottom: 0;
+}
+
+/* Toolbar buttons top-right */
+.cx-topbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.cx-btn {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: #fff;
+  color: var(--text);
+  padding: 0 10px;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+}
+.cx-btn:hover {
+  background: #fafafa;
+}
+.cx-btn-primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.cx-btn-primary:hover {
+  background: var(--primary-600);
+}
+
+/* Upload screen big outline buttons */
+.cx-btn-big {
+  height: 44px;
+  width: 200px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+}
+.cx-btn-outline {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: #fff;
+}
+.cx-btn-outline:hover {
+  background: #fff5f5;
+}
+.cx-btn-icon {
+  font-size: 16px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  line-height: 1;
+  display: inline-block;
+}
+
+/* Edit table styles (sheet-like) */
+.cx-sheet {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: auto;
+}
+.cx-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.cx-th {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  background: #fafafa;
+  font-size: 13px;
+  color: var(--muted);
+}
+.cx-td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  position: relative; /* for tooltips */
+}
+.cx-cell {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  background: #fff;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* Disabled (editing off) - visibly different state */
+.cx-cell:disabled,
+.cx-cell.invalid:disabled {
+  background: #f3f4f6; /* light gray */
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.cx-cell.invalid {
+  border-color: var(--primary);
+  background: #fff6f6;
+}
+.cx-error-list {
+  color: var(--primary);
+  font-size: 12px;
+  margin: 0;
+  padding-left: 18px;
+}
+.cx-badge-error {
+  display: inline-block;
+  background: #ffebee;
+  color: var(--primary);
+  border: 1px solid #ffcdd2;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* Small helpers */
+.cx-muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Tooltip for invalid cells */
+.cx-tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  min-width: 260px;
+  max-width: 420px;
+  background: #fff8f8;
+  color: var(--text);
+  border: 1px solid #f5c2c7;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  font-size: 13px;
+  display: none;
+}
+.cx-cell.invalid:hover + .cx-tooltip,
+.cx-cell.invalid:focus + .cx-tooltip {
+  display: block;
+}
+
+/* ---------- App chrome (sidebar + header) to match screenshots ---------- */
+
+.cx-app-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: 100%;
+}
+
+.cx-sidebar {
+  background: #fff;
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.cx-sidebar-title {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.cx-sidebar-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cx-sidebar-item {
+  display: grid;
+  grid-template-columns: 20px 1fr 20px;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text);
+}
+.cx-sidebar-item:hover {
+  background: #fdf2f2;
+}
+.cx-sidebar-item.active {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+.cx-sidebar-icon {
+  color: var(--muted);
+  font-size: 14px;
+}
+.cx-sidebar-name {
+  font-weight: 600;
+}
+.cx-dot {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* delete button in sidebar items */
+.cx-sidebar-delete {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cx-sidebar-item:hover .cx-sidebar-delete {
+  color: var(--primary-600);
+  background: #fff0f0;
+}
+.cx-sidebar-delete i {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.cx-content {
+  padding: 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cx-headerbar {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cx-tabs {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.cx-tab {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-weight: 600;
+  padding: 6px 2px;
+  cursor: default;
+}
+.cx-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 2px;
+}
+
+.cx-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cx-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
