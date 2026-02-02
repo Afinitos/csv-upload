@@ -39,23 +39,33 @@ type SavedSession = {
   submitted?: boolean;
 };
 
-function parseCsv(text: string): { headers: string[]; rows: string[][] } {
+async function parseCsv(text: string): Promise<{ headers: string[]; rows: string[][] }> {
   // Remove UTF-8 BOM if present
   if (text.charCodeAt(0) === 0xfeff) {
     text = text.slice(1);
   }
 
-  // PapaParse auto-detects delimiter if left undefined
-  const result = Papa.parse<string[]>(text, {
-    skipEmptyLines: "greedy",
+  return await new Promise((resolve, reject) => {
+    const useWorker = text.length > 2_000_000;
+    // PapaParse auto-detects delimiter if left undefined
+    const config = {
+      skipEmptyLines: "greedy",
+      ...(useWorker ? { worker: true as const } : {}),
+      complete: (result: Papa.ParseResult<string[]>) => {
+        const data = (result.data ?? []).filter((r) => Array.isArray(r)) as string[][];
+        if (data.length === 0) {
+          resolve({ headers: [], rows: [] });
+          return;
+        }
+
+        const headers = (data[0] ?? []).map((x) => String(x ?? ""));
+        const rows = data.slice(1).map((r) => r.map((x) => String(x ?? "")));
+        resolve({ headers, rows });
+      },
+      error: (error: Error) => reject(error),
+    } as Papa.ParseConfig<string[]>;
+    Papa.parse<string[]>(text, config);
   });
-
-  const data = (result.data ?? []).filter((r) => Array.isArray(r)) as string[][];
-  if (data.length === 0) return { headers: [], rows: [] };
-
-  const headers = (data[0] ?? []).map((x) => String(x ?? ""));
-  const rows = data.slice(1).map((r) => r.map((x) => String(x ?? "")));
-  return { headers, rows };
 }
 
 /**
@@ -328,15 +338,19 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   const creationAllowed = catalog.length === 0;
   const [submitted, setSubmitted] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(200);
 
   // Parse CSV when initialCsvText provided
   useEffect(() => {
     if (initialCsvText) {
-      const parsed = parseCsv(initialCsvText);
-      setParsed(parsed);
-      const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
-      setMapping(auto);
-      setStep("map");
+      void (async () => {
+        const parsed = await parseCsv(initialCsvText);
+        setParsed(parsed);
+        const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
+        setMapping(auto);
+        setStep("map");
+      })();
     }
   }, [initialCsvText, effectiveExpectedColumns]);
 
@@ -493,7 +507,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       if (!file) return;
       const text = await readFileText(file);
       setRawCsvText(text);
-      const parsed = parseCsv(text);
+      const parsed = await parseCsv(text);
       setParsed(parsed);
       const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
       setMapping(auto);
@@ -573,7 +587,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
 
   const anyUnmappedRequired = requiredColumnsUnmapped.length > 0;
 
-  const visibleRowIndexes = useMemo(() => {
+  const filteredRowIndexes = useMemo(() => {
     const all = mappedRows.map((_, idx) => idx);
     if (filterMode === "invalid") {
       const set = new Set(rowErrors.filter((r) => r.errors.length > 0).map((r) => r.rowIndex));
@@ -585,6 +599,22 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     }
     return all;
   }, [mappedRows, rowErrors, filterMode]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredRowIndexes.length / pageSize));
+  }, [filteredRowIndexes.length, pageSize]);
+
+  useEffect(() => {
+    if (pageIndex >= totalPages) {
+      setPageIndex(Math.max(0, totalPages - 1));
+    }
+  }, [pageIndex, totalPages]);
+
+  const visibleRowIndexes = useMemo(() => {
+    const start = pageIndex * pageSize;
+    const end = start + pageSize;
+    return filteredRowIndexes.slice(start, end);
+  }, [filteredRowIndexes, pageIndex, pageSize]);
 
   const allVisibleSelected = useMemo(() => {
     return visibleRowIndexes.length > 0 && visibleRowIndexes.every((idx) => selectedRows.has(idx));
@@ -835,7 +865,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 const file = files[0];
                 const text = await readFileText(file);
                 setRawCsvText(text);
-                const parsed = parseCsv(text);
+                const parsed = await parseCsv(text);
                 setParsed(parsed);
                 const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
                 setMapping(auto);
@@ -1098,6 +1128,45 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   Export invalid (CSV)
                 </button>
               ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => setPageIndex((prev) => Math.max(0, prev - 1))}
+                  disabled={pageIndex === 0}
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-gray-500">
+                  Page {pageIndex + 1} / {totalPages}
+                </span>
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => setPageIndex((prev) => Math.min(totalPages - 1, prev + 1))}
+                  disabled={pageIndex >= totalPages - 1}
+                >
+                  Next
+                </button>
+              </div>
+              <label className="flex h-8 items-center gap-2 rounded-lg border border-gray-300 bg-white px-2.5 text-sm text-gray-700">
+                Rows/page
+                <select
+                  className="h-6 rounded border border-gray-300 bg-white text-sm"
+                  value={pageSize}
+                  onChange={(e) => {
+                    const next = Number(e.target.value);
+                    setPageSize(next);
+                    setPageIndex(0);
+                  }}
+                >
+                  {[50, 100, 200, 500, 1000].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="flex items-center gap-2">
               <button
