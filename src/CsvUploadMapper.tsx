@@ -99,6 +99,36 @@ function autoMapColumns(expected: ExpectedColumn[], headers: string[]): ColumnMa
   return mapping;
 }
 
+function detectBestSchemaId(schemas: CsvSchema[], headers: string[]): string | null {
+  if (schemas.length === 0 || headers.length === 0) return null;
+  const normalizedHeaders = new Set(headers.map((h) => normalizeHeader(h)));
+  let bestId: string | null = null;
+  let bestScore = -1;
+  let bestRequiredMatches = -1;
+
+  schemas.forEach((schema) => {
+    if (!schema.columns || schema.columns.length === 0) return;
+    let score = 0;
+    let requiredMatches = 0;
+    schema.columns.forEach((col) => {
+      const candidates = [col.label, col.key];
+      const matched = candidates.some((c) => normalizedHeaders.has(normalizeHeader(c)));
+      if (matched) {
+        score += 1;
+        if (col.required) requiredMatches += 1;
+      }
+    });
+    if (score > bestScore || (score === bestScore && requiredMatches > bestRequiredMatches)) {
+      bestScore = score;
+      bestRequiredMatches = requiredMatches;
+      bestId = schema.id;
+    }
+  });
+
+  if (bestScore <= 0) return null;
+  return bestId;
+}
+
 /**
  * Build mapped rows using the column mapping. Unmapped expected columns become empty strings.
  */
@@ -240,6 +270,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   const [selectedSchemaId, setSelectedSchemaId] = useState<string>(
     () => defaultSchemas[0]?.id ?? "",
   );
+  const [schemaAutoSelected, setSchemaAutoSelected] = useState(false);
   const [newSchemaColumnLabel, setNewSchemaColumnLabel] = useState("");
   const [newSchemaColumnRequired, setNewSchemaColumnRequired] = useState(false);
 
@@ -509,11 +540,21 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       setRawCsvText(text);
       const parsed = await parseCsv(text);
       setParsed(parsed);
-      const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
-      setMapping(auto);
+      const detectedSchemaId = detectBestSchemaId(schemas, parsed.headers);
+      if (detectedSchemaId) {
+        setSelectedSchemaId(detectedSchemaId);
+        const schema = schemas.find((s) => s.id === detectedSchemaId);
+        if (schema) {
+          setMapping(autoMapColumns(schemaToExpectedColumns(schema), parsed.headers));
+        }
+        setSchemaAutoSelected(true);
+      } else {
+        setMapping(autoMapColumns(effectiveExpectedColumns, parsed.headers));
+        setSchemaAutoSelected(false);
+      }
       setStep("map");
     },
-    [readFileText, effectiveExpectedColumns],
+    [readFileText, effectiveExpectedColumns, schemas],
   );
 
   const requiredColumnsUnmapped = useMemo(() => {
@@ -744,6 +785,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
           onChange={(e) => {
             const id = e.target.value;
             setSelectedSchemaId(id);
+            setSchemaAutoSelected(false);
 
             // reset mapping when schema changes
             const schema = schemas.find((s) => s.id === id) ?? schemas[0];
@@ -764,6 +806,11 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
         <div className="text-xs text-gray-500">
           {selectedSchema?.description ?? "Select which columns are expected in the CSV."}
         </div>
+        {schemaAutoSelected ? (
+          <div className="text-xs text-emerald-600">
+            Schema auto-selected based on your CSV headers. You can change it if needed.
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           <button
             className="h-9 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
@@ -867,8 +914,18 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 setRawCsvText(text);
                 const parsed = await parseCsv(text);
                 setParsed(parsed);
-                const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
-                setMapping(auto);
+                const detectedSchemaId = detectBestSchemaId(schemas, parsed.headers);
+                if (detectedSchemaId) {
+                  setSelectedSchemaId(detectedSchemaId);
+                  const schema = schemas.find((s) => s.id === detectedSchemaId);
+                  if (schema) {
+                    setMapping(autoMapColumns(schemaToExpectedColumns(schema), parsed.headers));
+                  }
+                  setSchemaAutoSelected(true);
+                } else {
+                  setMapping(autoMapColumns(effectiveExpectedColumns, parsed.headers));
+                  setSchemaAutoSelected(false);
+                }
                 setStep("map");
               }}
               className="mb-4 rounded-xl border-2 border-dashed border-gray-200 bg-white p-6"
