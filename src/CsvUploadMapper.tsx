@@ -367,6 +367,10 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(200);
+  const [editingCell, setEditingCell] = useState<{
+    rowIndex: number;
+    columnKey: string;
+  } | null>(null);
 
   // Parse CSV when initialCsvText provided
   useEffect(() => {
@@ -700,6 +704,26 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       return next;
     });
   }, []);
+
+  const updateCellValue = useCallback(
+    (rowIndex: number, columnKey: string, value: string) => {
+      setMappedRows((prev) => {
+        const updated = [...prev];
+        updated[rowIndex] = { ...updated[rowIndex], [columnKey]: value };
+        return updated;
+      });
+
+      // Re-validate the updated row
+      setRowErrors((prev) => {
+        const updated = [...prev];
+        const rowData = { ...mappedRows[rowIndex], [columnKey]: value };
+        const errors = validateRow(rowData, effectiveExpectedColumns);
+        updated[rowIndex] = { rowIndex, errors };
+        return updated;
+      });
+    },
+    [mappedRows, effectiveExpectedColumns],
+  );
 
   const deleteSelectedRows = useCallback(() => {
     if (selectedRows.size === 0 || submitted || submitting) return;
@@ -1307,10 +1331,18 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
           </div>
 
           <div className="mt-3 max-h-[420px] overflow-auto rounded-lg border border-gray-200 bg-white">
-            <table className="w-full border-collapse">
+            <table className="w-full border-collapse table-fixed">
+              <colgroup>
+                <col style={{ width: "80px" }} />
+                <col style={{ width: "60px" }} />
+                {(displayColumns ?? effectiveExpectedColumns).map((col) => (
+                  <col key={col.key} style={{ width: "200px" }} />
+                ))}
+                <col style={{ width: "250px" }} />
+              </colgroup>
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
+                  <th className="border-b border-r border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
                     <label className="inline-flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -1321,13 +1353,13 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                       <span>Select</span>
                     </label>
                   </th>
-                  <th className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
+                  <th className="border-b border-r border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
                     #
                   </th>
                   {(displayColumns ?? effectiveExpectedColumns).map((col) => (
                     <th
                       key={col.key}
-                      className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500"
+                      className="border-b border-r border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500"
                     >
                       {col.label}{" "}
                       {col.required ? (
@@ -1349,7 +1381,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   );
                   return (
                     <tr key={idx}>
-                      <td className="border-b border-gray-200 px-2.5 py-2 align-top">
+                      <td className="border-b border-r border-gray-200 px-2.5 py-2 align-top">
                         <input
                           type="checkbox"
                           checked={selectedRows.has(idx)}
@@ -1357,28 +1389,76 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                           aria-label={`Select row ${idx + 1}`}
                         />
                       </td>
-                      <td className="border-b border-gray-200 px-2.5 py-2 align-top">
+                      <td className="border-b border-r border-gray-200 px-2.5 py-2 align-top">
                         {idx + 1}
                       </td>
                       {(displayColumns ?? effectiveExpectedColumns).map(
                         (col) => {
                           const errMsg = errorByCol.get(col.key);
+                          const isEditing =
+                            editingCell?.rowIndex === idx &&
+                            editingCell?.columnKey === col.key;
                           return (
                             <td
                               key={col.key}
-                              className="border-b border-gray-200 px-2.5 py-2 align-top"
-                            >
-                              <div
-                                className={
-                                  "min-h-9 w-full rounded-md border px-2 py-1 text-sm " +
-                                  (errMsg
-                                    ? "border-red-500 bg-red-50"
-                                    : "border-gray-300 bg-white")
+                              className={
+                                "border-b border-r border-gray-200 px-2.5 py-2 align-top " +
+                                (isEditing
+                                  ? "bg-gray-50"
+                                  : errMsg
+                                    ? "bg-red-50"
+                                    : "bg-white")
+                              }
+                              onClick={() => {
+                                if (!isEditing) {
+                                  setEditingCell({
+                                    rowIndex: idx,
+                                    columnKey: col.key,
+                                  });
                                 }
-                                data-testid={`cell-${idx}-${col.key}`}
-                              >
-                                {row[col.key] ?? ""}
-                              </div>
+                              }}
+                            >
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  className="w-full border-none bg-transparent px-0 py-1 text-sm outline-none focus:ring-0"
+                                  style={{ overflow: "auto" }}
+                                  value={row[col.key] ?? ""}
+                                  onChange={(e) =>
+                                    updateCellValue(
+                                      idx,
+                                      col.key,
+                                      e.target.value,
+                                    )
+                                  }
+                                  onBlur={() => setEditingCell(null)}
+                                  onKeyDown={(e) => {
+                                    if (
+                                      e.key === "Enter" ||
+                                      e.key === "Escape"
+                                    ) {
+                                      setEditingCell(null);
+                                    }
+                                  }}
+                                  onFocus={(e) => {
+                                    e.target.setSelectionRange(0, 0);
+                                  }}
+                                  autoFocus
+                                  data-testid={`cell-${idx}-${col.key}`}
+                                />
+                              ) : (
+                                <div
+                                  className="cursor-text px-0 py-1 text-sm"
+                                  style={{
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                  data-testid={`cell-${idx}-${col.key}`}
+                                >
+                                  {row[col.key] ?? ""}
+                                </div>
+                              )}
                             </td>
                           );
                         },
