@@ -1246,11 +1246,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
             <div className="text-base font-semibold text-gray-900">
               3. Validate data
             </div>
-            <div className="text-xs text-gray-500">
-              {invalidRowCount > 0
-                ? `${invalidRowCount} invalid row(s)`
-                : "No validation issues"}
-            </div>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
@@ -1307,22 +1302,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   Delete selected ({selectedRows.size})
                 </button>
               </div>
-              <button
-                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={exportAllRows}
-                disabled={submitting}
-              >
-                Export workbook (CSV)
-              </button>
-              {invalidRowCount > 0 ? (
-                <button
-                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={exportInvalidRows}
-                  disabled={submitting}
-                >
-                  Export invalid (CSV)
-                </button>
-              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1372,30 +1351,19 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
           </div>
 
           <div className="mt-3 max-h-[420px] overflow-auto rounded-lg border border-gray-200 bg-white">
-            <table className="w-full border-collapse table-fixed">
-              <colgroup>
-                <col style={{ width: "80px" }} />
-                <col style={{ width: "60px" }} />
-                {(displayColumns ?? effectiveExpectedColumns).map((col) => (
-                  <col key={col.key} style={{ width: "200px" }} />
-                ))}
-                <col style={{ width: "250px" }} />
-              </colgroup>
+            <table className="w-full border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="border-b border-r border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
-                    <label className="inline-flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleSelectAllVisible}
-                        aria-label="Select all filtered rows"
-                      />
-                      <span>Select</span>
-                    </label>
-                  </th>
-                  <th className="border-b border-r border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
-                    #
+                  <th
+                    className="border-b border-r border-gray-200 bg-gray-50 px-2.5 py-2.5 text-center text-[13px] text-gray-500"
+                    style={{ width: "60px", maxWidth: "60px" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      aria-label="Select all filtered rows"
+                    />
                   </th>
                   {(displayColumns ?? effectiveExpectedColumns).map((col) => (
                     <th
@@ -1406,6 +1374,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                           ? "bg-blue-100"
                           : "bg-gray-50 hover:bg-gray-100")
                       }
+                      style={{ whiteSpace: "nowrap", maxWidth: "200px" }}
                       onClick={() => {
                         setSelectedColumn(
                           selectedColumn === col.key ? null : col.key,
@@ -1419,7 +1388,10 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                       ) : null}
                     </th>
                   ))}
-                  <th className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500">
+                  <th
+                    className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500"
+                    style={{ whiteSpace: "nowrap", maxWidth: "250px" }}
+                  >
                     Errors
                   </th>
                 </tr>
@@ -1433,16 +1405,16 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   );
                   return (
                     <tr key={idx}>
-                      <td className="border-b border-r border-gray-200 px-2.5 py-2 align-top">
+                      <td
+                        className="border-b border-r border-gray-200 px-2.5 py-2 align-top text-center"
+                        style={{ width: "60px", maxWidth: "60px" }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedRows.has(idx)}
                           onChange={() => toggleRowSelected(idx)}
                           aria-label={`Select row ${idx + 1}`}
                         />
-                      </td>
-                      <td className="border-b border-r border-gray-200 px-2.5 py-2 align-top">
-                        {idx + 1}
                       </td>
                       {(displayColumns ?? effectiveExpectedColumns).map(
                         (col) => {
@@ -1463,6 +1435,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                                       ? "bg-red-50"
                                       : "bg-white")
                               }
+                              style={{ maxWidth: "200px" }}
                               onClick={() => {
                                 if (!isEditing) {
                                   setEditingCell({
@@ -1518,7 +1491,10 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                           );
                         },
                       )}
-                      <td className="border-b border-gray-200 px-2.5 py-2 align-top">
+                      <td
+                        className="border-b border-gray-200 px-2.5 py-2 align-top"
+                        style={{ maxWidth: "250px" }}
+                      >
                         {errors.length > 0 ? (
                           <ul className="m-0 list-disc pl-5 text-xs text-red-600">
                             {errors.map((e, i) => (
@@ -1543,7 +1519,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                     <td
                       className="border-b border-gray-200 px-2.5 py-2 align-top"
                       colSpan={
-                        (displayColumns ?? effectiveExpectedColumns).length + 3
+                        (displayColumns ?? effectiveExpectedColumns).length + 2
                       }
                     >
                       No rows to display.
