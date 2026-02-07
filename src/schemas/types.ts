@@ -1,4 +1,4 @@
-import type { ExpectedColumn } from "../CsvUploadMapper.types";
+import type { ExpectedColumn } from "../CsvMapper.types";
 
 export type ColumnRule =
   | { type: "regex"; pattern: string; message?: string }

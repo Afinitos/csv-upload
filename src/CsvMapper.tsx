@@ -1,9 +1,6 @@
 import { useCallback, useMemo, useState, useEffect, type FC } from "react";
 import fieldCatalogData from "./fieldCatalog.json";
-import { defaultSchemas } from "./schemas/defaultSchemas";
 import type { CsvSchema, ColumnRule } from "./schemas/types";
-import Papa from "papaparse";
-import { SchemaModal } from "./SchemaModal";
 import type {
   Step,
   ExpectedColumn,
@@ -11,8 +8,8 @@ import type {
   MappedRow,
   CellError,
   RowValidation,
-  CsvUploadMapperProps,
-} from "./CsvUploadMapper.types";
+  CsvMapperProps,
+} from "./CsvMapper.types";
 export type {
   Step,
   ExpectedColumn,
@@ -20,17 +17,12 @@ export type {
   MappedRow,
   CellError,
   RowValidation,
-  CsvUploadMapperProps,
-} from "./CsvUploadMapper.types";
-export { Validators, defaultAssetColumns } from "./CsvUploadMapper.types";
-
-/**
- * Types
- */
+  CsvMapperProps,
+} from "./CsvMapper.types";
+export { Validators, defaultAssetColumns } from "./CsvMapper.types";
 
 type SavedSession = {
   step?: Step;
-  rawCsvText?: string;
   headers?: string[];
   rows?: string[][];
   mapping?: ColumnMapping;
@@ -40,49 +32,10 @@ type SavedSession = {
   submitted?: boolean;
 };
 
-async function parseCsv(
-  text: string,
-): Promise<{ headers: string[]; rows: string[][] }> {
-  // Remove UTF-8 BOM if present
-  if (text.charCodeAt(0) === 0xfeff) {
-    text = text.slice(1);
-  }
-
-  return await new Promise((resolve, reject) => {
-    const useWorker = text.length > 2_000_000;
-    // PapaParse auto-detects delimiter if left undefined
-    const config = {
-      skipEmptyLines: "greedy",
-      ...(useWorker ? { worker: true as const } : {}),
-      complete: (result: Papa.ParseResult<string[]>) => {
-        const data = (result.data ?? []).filter((r) =>
-          Array.isArray(r),
-        ) as string[][];
-        if (data.length === 0) {
-          resolve({ headers: [], rows: [] });
-          return;
-        }
-
-        const headers = (data[0] ?? []).map((x) => String(x ?? ""));
-        const rows = data.slice(1).map((r) => r.map((x) => String(x ?? "")));
-        resolve({ headers, rows });
-      },
-      error: (error: Error) => reject(error),
-    } as Papa.ParseConfig<string[]>;
-    Papa.parse<string[]>(text, config);
-  });
-}
-
-/**
- * Normalize a header/label string for matching.
- */
 function normalizeHeader(s: string): string {
   return s.replace(/[\s_\-]/g, "").toLowerCase();
 }
 
-/**
- * Attempt to auto-map CSV headers to expected columns using label/key similarity.
- */
 function autoMapColumns(
   expected: ExpectedColumn[],
   headers: string[],
@@ -102,7 +55,7 @@ function autoMapColumns(
         break;
       }
     }
-    mapping[col.key] = match; // can be null
+    mapping[col.key] = match;
   }
   return mapping;
 }
@@ -145,9 +98,6 @@ function detectBestSchemaId(
   return bestId;
 }
 
-/**
- * Build mapped rows using the column mapping. Unmapped expected columns become empty strings.
- */
 function applyMapping(
   rows: string[][],
   headers: string[],
@@ -168,16 +118,13 @@ function applyMapping(
   });
 }
 
-/**
- * Validate a row against expected columns and per-column validators.
- */
 function validateRow(row: MappedRow, expected: ExpectedColumn[]): CellError[] {
   const errors: CellError[] = [];
   for (const col of expected) {
     const value = row[col.key] ?? "";
     if (col.required && (!value || value.trim() === "")) {
       errors.push({ columnKey: col.key, message: `${col.label} is required` });
-      continue; // still allow validator to run? Typically skip if empty, required handles it
+      continue;
     }
     if (col.validator) {
       const res = col.validator(value);
@@ -237,10 +184,6 @@ function schemaToExpectedColumns(schema: CsvSchema): ExpectedColumn[] {
   });
 }
 
-/**
- * Styles kept simple inline to keep this component self-contained.
- */
-
 type CatalogField = { key: string; label: string; required?: boolean };
 
 function toKey(name: string): string {
@@ -277,67 +220,34 @@ function loadCatalogFromStorage(key: string): CatalogField[] | null {
   }
 }
 
-/**
- * CsvUploadMapper
- * - Upload CSV
- * - Map CSV headers to expected columns or catalog-based fields
- * - Validate and edit values
- * - Submit to backend via onSubmit callback
- */
-export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
-  expectedColumns,
+export const CsvMapper: FC<CsvMapperProps> = ({
+  schema,
+  headers: initialHeaders,
+  rows: initialRows,
   onSubmit,
   onRowCountChange,
   allowSubmitWithErrors = false,
-  initialCsvText,
+  onReset,
   className,
   style,
   storageKey,
   submitting = false,
   submitError = null,
 }) => {
-  const [schemas, setSchemas] = useState<CsvSchema[]>(() => defaultSchemas);
-  const [selectedSchemaId, setSelectedSchemaId] = useState<string>(
-    () => defaultSchemas[0]?.id ?? "",
-  );
-  const [schemaAutoSelected, setSchemaAutoSelected] = useState(false);
-  const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
-  const [schemaModalMode, setSchemaModalMode] = useState<"add" | "edit">("add");
+  const effectiveExpectedColumns = useMemo<ExpectedColumn[]>(() => {
+    return schemaToExpectedColumns(schema);
+  }, [schema]);
 
-  const selectedSchema = useMemo(() => {
-    return schemas.find((s) => s.id === selectedSchemaId) ?? schemas[0] ?? null;
-  }, [schemas, selectedSchemaId]);
+  const [step, setStep] = useState<Step>("map");
+  const [headers] = useState<string[]>(initialHeaders);
+  const [rows] = useState<string[][]>(initialRows);
 
-  const schemaExpectedColumns = useMemo<ExpectedColumn[]>(() => {
-    return selectedSchema ? schemaToExpectedColumns(selectedSchema) : [];
-  }, [selectedSchema]);
-
-  // We treat the selected schema as the “expected columns” in the UI.
-  // If parent passes expectedColumns (tests), it still works, but schema takes precedence for the wizard UX.
-  const effectiveExpectedColumns = (
-    schemaExpectedColumns.length > 0 ? schemaExpectedColumns : expectedColumns
-  ) as ExpectedColumn[];
-
-  const [step, setStep] = useState<Step>(initialCsvText ? "map" : "upload");
-  const [rawCsvText, setRawCsvText] = useState<string>(initialCsvText ?? "");
-  const [{ headers, rows }, setParsed] = useState<{
-    headers: string[];
-    rows: string[][];
-  }>({
-    headers: [],
-    rows: [],
-  });
-
-  // Mapping state: expected key -> header name (or null)
   const [mapping, setMapping] = useState<ColumnMapping>({});
 
-  // Mapped editable rows
   const [mappedRows, setMappedRows] = useState<MappedRow[]>([]);
 
-  // Validation state
   const [rowErrors, setRowErrors] = useState<RowValidation[]>([]);
 
-  // Notify parent about row count changes
   useEffect(() => {
     onRowCountChange?.(mappedRows.length);
   }, [mappedRows, onRowCountChange]);
@@ -373,37 +283,11 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   } | null>(null);
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
 
-  // Parse CSV when initialCsvText provided
   useEffect(() => {
-    if (initialCsvText) {
-      void (async () => {
-        const parsed = await parseCsv(initialCsvText);
-        setParsed(parsed);
-        const auto = autoMapColumns(effectiveExpectedColumns, parsed.headers);
-        setMapping(auto);
-        setStep("map");
-      })();
-    }
-  }, [initialCsvText, effectiveExpectedColumns]);
+    const auto = autoMapColumns(effectiveExpectedColumns, headers);
+    setMapping(auto);
+  }, [effectiveExpectedColumns, headers]);
 
-  // Hydrate saved session per-workbook
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(SESSION);
-      if (!raw) return;
-      const s: SavedSession = JSON.parse(raw);
-      if (s.step) setStep(s.step);
-      if (typeof s.rawCsvText === "string") setRawCsvText(s.rawCsvText);
-      setParsed({ headers: s.headers ?? [], rows: s.rows ?? [] });
-      setMapping(s.mapping ?? {});
-      setMappedRows(s.mappedRows ?? []);
-      setRowErrors(s.rowErrors ?? []);
-      if (s.filterMode) setFilterMode(s.filterMode);
-      if (typeof s.submitted === "boolean") setSubmitted(s.submitted);
-    } catch {}
-  }, [SESSION]);
-
-  // Initialize header mapping when headers change
   useEffect(() => {
     if (headers.length === 0) return;
     const inc: Record<string, boolean> = {};
@@ -428,12 +312,10 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     setHeaderNewName((prev) => ({ ...newNames, ...prev }));
   }, [headers, catalog, creationAllowed]);
 
-  // Persist session per-workbook
   useEffect(() => {
     try {
       const data: SavedSession = {
         step,
-        rawCsvText,
         headers,
         rows,
         mapping,
@@ -447,7 +329,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   }, [
     SESSION,
     step,
-    rawCsvText,
     headers,
     rows,
     mapping,
@@ -457,8 +338,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     submitted,
   ]);
 
-  // If expectedColumns is provided (tests rely on it), use that path.
-  // Otherwise (e.g., App wants no predefined columns), derive columns from CSV headers + catalog.
   const displayColumns = useMemo<ExpectedColumn[] | null>(() => {
     if ((effectiveExpectedColumns ?? []).length > 0) return null;
     const includedHeaders = headers.filter((h) => headerInclude[h]);
@@ -492,83 +371,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     catalog,
   ]);
 
-  // Save any new fields chosen in mapping into catalog (localStorage)
-  const saveCatalog = useCallback(() => {
-    const newOnes: CatalogField[] = [];
-    for (const h of headers) {
-      if (!headerInclude[h]) continue;
-      const sel = headerToField[h];
-      if (sel === "__new__") {
-        const name = headerNewName[h] || h;
-        const key = toKey(name);
-        if (!catalog.find((c) => c.key === key)) {
-          newOnes.push({ key, label: name });
-        }
-      }
-    }
-    if (newOnes.length === 0) return;
-    const merged = [...catalog, ...newOnes];
-    setCatalog(merged);
-    try {
-      localStorage.setItem(STORAGE, JSON.stringify({ fields: merged }));
-    } catch {}
-  }, [headers, headerInclude, headerToField, headerNewName, catalog, STORAGE]);
-
-  const readFileText = useCallback((file: File) => {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const buf = reader.result as ArrayBuffer;
-          const bytes = new Uint8Array(buf);
-          let encoding: string = "utf-8";
-          if (bytes.length >= 2) {
-            const b0 = bytes[0];
-            const b1 = bytes[1];
-            const b2 = bytes[2];
-            if (b0 === 0xfe && b1 === 0xff) encoding = "utf-16be";
-            else if (b0 === 0xff && b1 === 0xfe) encoding = "utf-16le";
-            else if (b0 === 0xef && b1 === 0xbb && b2 === 0xbf)
-              encoding = "utf-8";
-          }
-          const dec = new TextDecoder(encoding as any);
-          resolve(dec.decode(bytes));
-        } catch (e) {
-          reject(e);
-        }
-      };
-      reader.onerror = () => reject(reader.error);
-      reader.readAsArrayBuffer(file);
-    });
-  }, []);
-
-  const handleFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await readFileText(file);
-      setRawCsvText(text);
-      const parsed = await parseCsv(text);
-      setParsed(parsed);
-      const detectedSchemaId = detectBestSchemaId(schemas, parsed.headers);
-      if (detectedSchemaId) {
-        setSelectedSchemaId(detectedSchemaId);
-        const schema = schemas.find((s) => s.id === detectedSchemaId);
-        if (schema) {
-          setMapping(
-            autoMapColumns(schemaToExpectedColumns(schema), parsed.headers),
-          );
-        }
-        setSchemaAutoSelected(true);
-      } else {
-        setMapping(autoMapColumns(effectiveExpectedColumns, parsed.headers));
-        setSchemaAutoSelected(false);
-      }
-      setStep("map");
-    },
-    [readFileText, effectiveExpectedColumns, schemas],
-  );
-
   const requiredColumnsUnmapped = useMemo(() => {
     return effectiveExpectedColumns.filter(
       (c) => c.required && !mapping[c.key],
@@ -576,13 +378,10 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   }, [effectiveExpectedColumns, mapping]);
 
   const handleApplyMapping = useCallback(() => {
-    // Determine which columns to use: header-based mapping if available, else expectedColumns mapping
     const cols: ExpectedColumn[] = displayColumns ?? effectiveExpectedColumns;
 
-    // Build column mapping: key -> header
     const revMap: Record<string, string | null> = {};
     if (displayColumns) {
-      // derive from header selection
       for (const h of headers) {
         if (!headerInclude[h]) continue;
         const sel = headerToField[h];
@@ -593,7 +392,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
         }
       }
     } else {
-      // use existing expected mapping state
       for (const col of effectiveExpectedColumns) {
         revMap[col.key] = mapping[col.key] ?? null;
       }
@@ -604,13 +402,11 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       colMapping[c.key] = revMap[c.key] ?? null;
     });
 
-    // keep mapping state in sync (used by onSubmit)
     setMapping(colMapping);
 
     const mRows = applyMapping(rows, headers, cols, colMapping);
     setMappedRows(mRows);
 
-    // Validate all
     const errs = mRows.map((r, idx) => ({
       rowIndex: idx,
       errors: validateRow(r, cols),
@@ -686,10 +482,8 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     setSelectedRows((prev) => {
       const next = new Set(prev);
       if (allVisibleSelected) {
-        // Deselect all filtered rows
         filteredRowIndexes.forEach((idx) => next.delete(idx));
       } else {
-        // Select all filtered rows (not just visible on current page)
         filteredRowIndexes.forEach((idx) => next.add(idx));
       }
       return next;
@@ -716,7 +510,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
         return updated;
       });
 
-      // Re-validate the updated row
       setRowErrors((prev) => {
         const updated = [...prev];
         const rowData = { ...mappedRows[rowIndex], [columnKey]: value };
@@ -731,8 +524,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
   const deleteSelectedColumnValues = useCallback(() => {
     if (!selectedColumn) return;
 
-    // If rows are selected, only clear those rows in the column
-    // Otherwise, clear all filtered rows (not just visible on current page)
     const rowsToClear =
       selectedRows.size > 0
         ? new Set(selectedRows)
@@ -750,7 +541,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
       });
     });
 
-    // Re-validate affected rows
     setRowErrors((prev) => {
       return prev.map((rowErr, idx) => {
         if (rowsToClear.has(idx)) {
@@ -771,11 +561,9 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     filteredRowIndexes,
   ]);
 
-  // Handle keyboard events for deleting column values
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (selectedColumn && (e.key === "Delete" || e.key === "Backspace")) {
-        // Don't delete if we're editing a cell
         if (!editingCell) {
           e.preventDefault();
           deleteSelectedColumnValues();
@@ -805,285 +593,55 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     setSubmitted(true);
   }, [allowSubmitWithErrors, invalidCount, onSubmit, mappedRows, mapping]);
 
-  const exportInvalidRows = useCallback(() => {
-    const cols = displayColumns ?? effectiveExpectedColumns;
-    const invalid = rowErrors
-      .filter((r) => r.errors.length > 0)
-      .map((r) => r.rowIndex);
-    const csvRows: string[] = [];
-    const headers = [...cols.map((c) => c.label), "Errors"];
-    const escape = (v: string) => {
-      const s = v ?? "";
-      if (
-        s.includes('"') ||
-        s.includes(",") ||
-        s.includes("\n") ||
-        s.includes("\r")
-      ) {
-        return '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    };
-    csvRows.push(headers.map(escape).join(","));
-    invalid.forEach((idx) => {
-      const row = mappedRows[idx] ?? {};
-      const errs =
-        rowErrors[idx]?.errors
-          ?.map((e) => `${e.columnKey}: ${e.message}`)
-          .join("; ") ?? "";
-      const values = cols.map((c) => String(row[c.key] ?? ""));
-      csvRows.push([...values, errs].map(escape).join(","));
-    });
-    const blob = new Blob([csvRows.join("\n")], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "invalid_rows.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [displayColumns, effectiveExpectedColumns, mappedRows, rowErrors]);
-
-  const exportAllRows = useCallback(() => {
-    const cols = displayColumns ?? effectiveExpectedColumns;
-    const headers = cols.map((c) => c.label);
-    const escape = (v: string) => {
-      const s = v ?? "";
-      if (
-        s.includes('"') ||
-        s.includes(",") ||
-        s.includes("\n") ||
-        s.includes("\r")
-      ) {
-        return '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    };
-    const csvRows: string[] = [];
-    csvRows.push(headers.map(escape).join(","));
-    mappedRows.forEach((row) => {
-      const values = cols.map((c) => String(row[c.key] ?? ""));
-      csvRows.push(values.map(escape).join(","));
-    });
-    const blob = new Blob([csvRows.join("\n")], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "workbook.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [displayColumns, effectiveExpectedColumns, mappedRows]);
-
   const resetToUpload = useCallback(() => {
-    setStep("upload");
-    setRawCsvText("");
-    setParsed({ headers: [], rows: [] });
     setMapping({});
     setMappedRows([]);
     setRowErrors([]);
     setFilterMode("all");
+    setStep("map");
     try {
       localStorage.removeItem(SESSION);
     } catch {}
-  }, [SESSION]);
+    onReset?.();
+  }, [SESSION, onReset]);
 
   const canContinue = useMemo(() => {
     if (displayColumns && displayColumns.length > 0) return true;
     return !anyUnmappedRequired;
   }, [displayColumns, anyUnmappedRequired]);
 
-  const schemaSelector = (
-    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4">
-      <div className="text-xs font-semibold tracking-wider text-gray-500">
-        SCHEMA
-      </div>
-      <div className="flex w-full flex-col gap-2">
-        <select
-          className="h-10 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
-          value={selectedSchemaId}
-          onChange={(e) => {
-            const id = e.target.value;
-            setSelectedSchemaId(id);
-            setSchemaAutoSelected(false);
-
-            // reset mapping when schema changes
-            const schema = schemas.find((s) => s.id === id) ?? schemas[0];
-            if (schema) {
-              setMapping(
-                autoMapColumns(schemaToExpectedColumns(schema), headers),
-              );
-            } else {
-              setMapping({});
-            }
-          }}
-          data-testid="schema-select"
-        >
-          {schemas.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <div className="text-xs text-gray-500">
-          {selectedSchema?.description ??
-            "Select which columns are expected in the CSV."}
-        </div>
-        {schemaAutoSelected ? (
-          <div className="text-xs text-emerald-600">
-            Schema auto-selected based on your CSV headers. You can change it if
-            needed.
-          </div>
-        ) : null}
-        <div className="flex items-center gap-2">
-          <button
-            className="h-9 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
-            onClick={() => {
-              setSchemaModalMode("add");
-              setIsSchemaModalOpen(true);
-            }}
-            type="button"
-          >
-            + Add schema
-          </button>
-          <button
-            className="h-9 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => {
-              setSchemaModalMode("edit");
-              setIsSchemaModalOpen(true);
-            }}
-            type="button"
-            disabled={!selectedSchema}
-          >
-            Edit schema
-          </button>
-          <span className="text-xs text-gray-500">
-            (for now stored only in memory)
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
-    <div className={className} style={style} data-testid="csv-upload-mapper">
-      {step === "upload" && (
-        <div className="p-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-            <div className="mb-2 text-lg font-bold text-gray-900">Import</div>
-            <div className="mb-4 text-xs text-gray-500">
-              Drag and drop or upload a file to get started
-            </div>
-
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-              }}
-              onDrop={async (e) => {
-                e.preventDefault();
-                const files = e.dataTransfer?.files;
-                if (!files || files.length === 0) return;
-                const file = files[0];
-                const text = await readFileText(file);
-                setRawCsvText(text);
-                const parsed = await parseCsv(text);
-                setParsed(parsed);
-                const detectedSchemaId = detectBestSchemaId(
-                  schemas,
-                  parsed.headers,
-                );
-                if (detectedSchemaId) {
-                  setSelectedSchemaId(detectedSchemaId);
-                  const schema = schemas.find((s) => s.id === detectedSchemaId);
-                  if (schema) {
-                    setMapping(
-                      autoMapColumns(
-                        schemaToExpectedColumns(schema),
-                        parsed.headers,
-                      ),
-                    );
-                  }
-                  setSchemaAutoSelected(true);
-                } else {
-                  setMapping(
-                    autoMapColumns(effectiveExpectedColumns, parsed.headers),
-                  );
-                  setSchemaAutoSelected(false);
-                }
-                setStep("map");
-              }}
-              className="mb-4 rounded-xl border-2 border-dashed border-gray-200 bg-white p-6"
-            >
-              <div className="text-xs text-gray-500">Drop CSV here</div>
-            </div>
-
-            <input
-              id="upload-input"
-              data-testid="file-input"
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleFileChange}
-              style={{ display: "none" }}
-            />
-            <div className="flex justify-center gap-2">
-              <label htmlFor="upload-input">
-                <span
-                  className="inline-flex h-11 w-[200px] items-center justify-center gap-2 rounded-xl border border-red-500 bg-white px-4 text-sm font-semibold text-red-500 hover:bg-red-50"
-                  role="button"
-                >
-                  <i
-                    className="fa-solid fa-upload cx-btn-icon"
-                    aria-hidden="true"
-                  ></i>
-                  Upload file
-                </span>
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
+    <div className={className} style={style} data-testid="csv-mapper">
       {step === "map" && (
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="mb-2 text-base font-semibold text-gray-900">
-            2. Map CSV columns to expected fields
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-base font-semibold text-gray-900">
+              Map CSV columns to expected fields
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
+                onClick={resetToUpload}
+              >
+                Exit
+              </button>
+              <button
+                className="h-8 rounded-lg border border-red-500 bg-red-500 px-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleApplyMapping}
+                disabled={!canContinue}
+                data-testid="apply-mapping"
+              >
+                Continue
+              </button>
+            </div>
           </div>
-          {schemaSelector}
           {headers.length === 0 ? (
             <div style={{ color: "#d32f2f" }}>
               No headers detected. Check your CSV file.
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {/* Top actions like screenshots */}
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
-                  onClick={resetToUpload}
-                >
-                  Exit
-                </button>
-                <button
-                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50"
-                  onClick={() => setStep("upload")}
-                >
-                  Back
-                </button>
-                <button
-                  className="h-8 rounded-lg border border-red-500 bg-red-500 px-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={handleApplyMapping}
-                  disabled={!canContinue}
-                  data-testid="apply-mapping"
-                >
-                  Continue
-                </button>
-              </div>
-
-              {/* Styled two-column layout */}
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
-                {/* Left: expected-to-uploaded mapping rows */}
                 <div className="rounded-xl border border-gray-200 bg-white p-3">
                   <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
                     <div className="font-semibold text-gray-900">
@@ -1164,7 +722,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   </div>
                 </div>
 
-                {/* Right: preview card */}
                 <div className="lg:sticky lg:top-4">
                   <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
                     <div className="mb-2 font-semibold text-gray-900">
@@ -1198,7 +755,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 </div>
               </div>
 
-              {/* CSV preview (legacy table hidden) */}
               <div style={{ display: "none" }}>
                 <div>CSV preview</div>
                 <div style={{ overflowX: "auto" }}>
@@ -1244,7 +800,52 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div className="text-base font-semibold text-gray-900">
-              3. Validate data
+              Validate data
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setStep("map")}
+                disabled={submitted || submitting}
+              >
+                Back
+              </button>
+              {submitted ? (
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm"
+                  disabled
+                >
+                  Submitted
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="h-8 rounded-lg border border-red-500 bg-red-500 px-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={handleSubmit}
+                    disabled={
+                      (invalidRowCount > 0 && !allowSubmitWithErrors) ||
+                      submitting
+                    }
+                    data-testid="submit-button"
+                  >
+                    {submitting ? "Submitting…" : "Submit"}
+                  </button>
+                  {submitError ? (
+                    <>
+                      <span className="text-sm text-red-600">
+                        {submitError}
+                      </span>
+                      <button
+                        className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={handleSubmit}
+                        disabled={submitting}
+                      >
+                        Retry
+                      </button>
+                    </>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -1302,51 +903,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   Delete selected ({selectedRows.size})
                 </button>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => setStep("map")}
-                disabled={submitted || submitting}
-              >
-                Back
-              </button>
-              {submitted ? (
-                <button
-                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm"
-                  disabled
-                >
-                  Submitted
-                </button>
-              ) : (
-                <>
-                  <button
-                    className="h-8 rounded-lg border border-red-500 bg-red-500 px-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={handleSubmit}
-                    disabled={
-                      (invalidRowCount > 0 && !allowSubmitWithErrors) ||
-                      submitting
-                    }
-                    data-testid="submit-button"
-                  >
-                    {submitting ? "Submitting…" : "Submit"}
-                  </button>
-                  {submitError ? (
-                    <>
-                      <span className="text-sm text-red-600">
-                        {submitError}
-                      </span>
-                      <button
-                        className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={handleSubmit}
-                        disabled={submitting}
-                      >
-                        Retry
-                      </button>
-                    </>
-                  ) : null}
-                </>
-              )}
             </div>
           </div>
 
@@ -1530,7 +1086,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
             </table>
           </div>
 
-          {/* Pagination controls below table */}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <button
@@ -1609,33 +1164,8 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
           <div style={{ display: "none" }} />
         </div>
       )}
-
-      <SchemaModal
-        isOpen={isSchemaModalOpen}
-        onClose={() => setIsSchemaModalOpen(false)}
-        onSave={(schema) => {
-          if (schemaModalMode === "add") {
-            setSchemas((prev) => [...prev, schema]);
-            setSelectedSchemaId(schema.id);
-          } else {
-            setSchemas((prev) =>
-              prev.map((s) => (s.id === selectedSchemaId ? schema : s)),
-            );
-          }
-        }}
-        schema={schemaModalMode === "edit" ? selectedSchema : null}
-        mode={schemaModalMode}
-      />
     </div>
   );
 };
 
-export default CsvUploadMapper;
-
-/**
- * Example validators you can reuse.
- */
-
-/**
- * Helper to build a common expectedColumns config for "Asset ID" and "Unique Identifier"
- */
+export default CsvMapper;
