@@ -1324,47 +1324,6 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 </button>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2">
-                <button
-                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => setPageIndex((prev) => Math.max(0, prev - 1))}
-                  disabled={pageIndex === 0}
-                >
-                  Prev
-                </button>
-                <span className="text-xs text-gray-500">
-                  Page {pageIndex + 1} / {totalPages}
-                </span>
-                <button
-                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() =>
-                    setPageIndex((prev) => Math.min(totalPages - 1, prev + 1))
-                  }
-                  disabled={pageIndex >= totalPages - 1}
-                >
-                  Next
-                </button>
-              </div>
-              <label className="flex h-8 items-center gap-2 rounded-lg border border-gray-300 bg-white px-2.5 text-sm text-gray-700">
-                Rows/page
-                <select
-                  className="h-6 rounded border border-gray-300 bg-white text-sm"
-                  value={pageSize}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
-                    setPageSize(next);
-                    setPageIndex(0);
-                  }}
-                >
-                  {[50, 100, 200, 500, 1000].map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
             <div className="flex items-center gap-2">
               <button
                 className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1593,6 +1552,82 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Pagination controls below table */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <button
+                className="flex h-9 items-center gap-2 px-3 text-sm font-medium text-gray-700 hover:text-gray-900 disabled:cursor-not-allowed disabled:text-gray-400"
+                onClick={() => setPageIndex((prev) => Math.max(0, prev - 1))}
+                disabled={pageIndex === 0}
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
+                Previous
+              </button>
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <span>Page</span>
+                <span className="font-semibold text-gray-900">
+                  {pageIndex + 1}
+                </span>
+                <span>of</span>
+                <span className="font-semibold text-gray-900">
+                  {totalPages}
+                </span>
+              </div>
+              <button
+                className="flex h-9 items-center gap-2 px-3 text-sm font-medium text-gray-700 hover:text-gray-900 disabled:cursor-not-allowed disabled:text-gray-400"
+                onClick={() =>
+                  setPageIndex((prev) => Math.min(totalPages - 1, prev + 1))
+                }
+                disabled={pageIndex >= totalPages - 1}
+              >
+                Next
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5l7 7-7 7"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span>Rows per page:</span>
+              <select
+                className="h-9 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-gray-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+                value={pageSize}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setPageSize(next);
+                  setPageIndex(0);
+                }}
+              >
+                {[50, 100, 200, 500, 1000].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div style={{ display: "none" }} />
