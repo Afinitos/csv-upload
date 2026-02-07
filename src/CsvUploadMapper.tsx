@@ -371,6 +371,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     rowIndex: number;
     columnKey: string;
   } | null>(null);
+  const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
 
   // Parse CSV when initialCsvText provided
   useEffect(() => {
@@ -676,22 +677,24 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
 
   const allVisibleSelected = useMemo(() => {
     return (
-      visibleRowIndexes.length > 0 &&
-      visibleRowIndexes.every((idx) => selectedRows.has(idx))
+      filteredRowIndexes.length > 0 &&
+      filteredRowIndexes.every((idx) => selectedRows.has(idx))
     );
-  }, [visibleRowIndexes, selectedRows]);
+  }, [filteredRowIndexes, selectedRows]);
 
   const toggleSelectAllVisible = useCallback(() => {
     setSelectedRows((prev) => {
       const next = new Set(prev);
       if (allVisibleSelected) {
-        visibleRowIndexes.forEach((idx) => next.delete(idx));
+        // Deselect all filtered rows
+        filteredRowIndexes.forEach((idx) => next.delete(idx));
       } else {
-        visibleRowIndexes.forEach((idx) => next.add(idx));
+        // Select all filtered rows (not just visible on current page)
+        filteredRowIndexes.forEach((idx) => next.add(idx));
       }
       return next;
     });
-  }, [allVisibleSelected, visibleRowIndexes]);
+  }, [allVisibleSelected, filteredRowIndexes]);
 
   const toggleRowSelected = useCallback((idx: number) => {
     setSelectedRows((prev) => {
@@ -724,6 +727,65 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
     },
     [mappedRows, effectiveExpectedColumns],
   );
+
+  const deleteSelectedColumnValues = useCallback(() => {
+    if (!selectedColumn) return;
+
+    // If rows are selected, only clear those rows in the column
+    // Otherwise, clear all filtered rows (not just visible on current page)
+    const rowsToClear =
+      selectedRows.size > 0
+        ? new Set(selectedRows)
+        : new Set(filteredRowIndexes);
+
+    setMappedRows((prev) => {
+      return prev.map((row, idx) => {
+        if (rowsToClear.has(idx)) {
+          return {
+            ...row,
+            [selectedColumn]: "",
+          };
+        }
+        return row;
+      });
+    });
+
+    // Re-validate affected rows
+    setRowErrors((prev) => {
+      return prev.map((rowErr, idx) => {
+        if (rowsToClear.has(idx)) {
+          const rowData = { ...mappedRows[idx], [selectedColumn]: "" };
+          const errors = validateRow(rowData, effectiveExpectedColumns);
+          return { rowIndex: idx, errors };
+        }
+        return rowErr;
+      });
+    });
+
+    setSelectedColumn(null);
+  }, [
+    selectedColumn,
+    mappedRows,
+    effectiveExpectedColumns,
+    selectedRows,
+    filteredRowIndexes,
+  ]);
+
+  // Handle keyboard events for deleting column values
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (selectedColumn && (e.key === "Delete" || e.key === "Backspace")) {
+        // Don't delete if we're editing a cell
+        if (!editingCell) {
+          e.preventDefault();
+          deleteSelectedColumnValues();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedColumn, editingCell, deleteSelectedColumnValues]);
 
   const deleteSelectedRows = useCallback(() => {
     if (selectedRows.size === 0 || submitted || submitting) return;
@@ -1218,13 +1280,33 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
               >
                 Invalid ({invalidRowCount})
               </button>
-              <button
-                className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={deleteSelectedRows}
-                disabled={selectedRows.size === 0 || submitted || submitting}
-              >
-                Delete selected ({selectedRows.size})
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {selectedColumn && (
+                  <div className="flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1 text-sm text-blue-700">
+                    <span>
+                      Column "
+                      {
+                        (displayColumns ?? effectiveExpectedColumns).find(
+                          (c) => c.key === selectedColumn,
+                        )?.label
+                      }
+                      " selected
+                    </span>
+                    <span className="text-xs text-blue-600">
+                      {selectedRows.size > 0
+                        ? `(Press Delete/Backspace to clear ${selectedRows.size} selected cells)`
+                        : `(Press Delete/Backspace to clear ${filteredRowIndexes.length} filtered cells)`}
+                    </span>
+                  </div>
+                )}
+                <button
+                  className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={deleteSelectedRows}
+                  disabled={selectedRows.size === 0 || submitted || submitting}
+                >
+                  Delete selected ({selectedRows.size})
+                </button>
+              </div>
               <button
                 className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={exportAllRows}
@@ -1348,7 +1430,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                         type="checkbox"
                         checked={allVisibleSelected}
                         onChange={toggleSelectAllVisible}
-                        aria-label="Select all visible rows"
+                        aria-label="Select all filtered rows"
                       />
                       <span>Select</span>
                     </label>
@@ -1359,7 +1441,18 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                   {(displayColumns ?? effectiveExpectedColumns).map((col) => (
                     <th
                       key={col.key}
-                      className="border-b border-r border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500"
+                      className={
+                        "border-b border-r border-gray-200 px-2.5 py-2.5 text-left text-[13px] text-gray-500 cursor-pointer transition-colors " +
+                        (selectedColumn === col.key
+                          ? "bg-blue-100"
+                          : "bg-gray-50 hover:bg-gray-100")
+                      }
+                      onClick={() => {
+                        setSelectedColumn(
+                          selectedColumn === col.key ? null : col.key,
+                        );
+                      }}
+                      title="Click to select all cells in this column"
                     >
                       {col.label}{" "}
                       {col.required ? (
@@ -1405,9 +1498,11 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                                 "border-b border-r border-gray-200 px-2.5 py-2 align-top " +
                                 (isEditing
                                   ? "bg-gray-50"
-                                  : errMsg
-                                    ? "bg-red-50"
-                                    : "bg-white")
+                                  : selectedColumn === col.key
+                                    ? "bg-blue-50"
+                                    : errMsg
+                                      ? "bg-red-50"
+                                      : "bg-white")
                               }
                               onClick={() => {
                                 if (!isEditing) {
@@ -1415,6 +1510,7 @@ export const CsvUploadMapper: FC<CsvUploadMapperProps> = ({
                                     rowIndex: idx,
                                     columnKey: col.key,
                                   });
+                                  setSelectedColumn(null);
                                 }
                               }}
                             >
