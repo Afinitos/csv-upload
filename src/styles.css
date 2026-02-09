@@ -317,28 +317,6 @@ body {
   font-size: 12px;
 }
 
-/* Tooltip for invalid cells */
-.cx-tooltip {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 10;
-  min-width: 260px;
-  max-width: 420px;
-  background: #fff8f8;
-  color: var(--text);
-  border: 1px solid #f5c2c7;
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  padding: 10px 12px;
-  font-size: 13px;
-  display: none;
-}
-.cx-cell.invalid:hover + .cx-tooltip,
-.cx-cell.invalid:focus + .cx-tooltip {
-  display: block;
-}
-
 /* ---------- App chrome (sidebar + header) to match screenshots ---------- */
 
 .cx-app-layout {
