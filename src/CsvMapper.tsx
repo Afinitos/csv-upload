@@ -944,12 +944,6 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                       ) : null}
                     </th>
                   ))}
-                  <th
-                    className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500"
-                    style={{ whiteSpace: "nowrap", maxWidth: "250px" }}
-                  >
-                    Errors
-                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -982,7 +976,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                             <td
                               key={col.key}
                               className={
-                                "border-b border-r border-gray-200 px-2.5 py-2 align-top " +
+                                "border-b border-r border-gray-200 px-2.5 py-2 align-top relative group " +
                                 (isEditing
                                   ? "bg-gray-50"
                                   : selectedColumn === col.key
@@ -1031,42 +1025,36 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                                   data-testid={`cell-${idx}-${col.key}`}
                                 />
                               ) : (
-                                <div
-                                  className="cursor-text px-0 py-1 text-sm"
-                                  style={{
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                  }}
-                                  data-testid={`cell-${idx}-${col.key}`}
-                                >
-                                  {row[col.key] ?? ""}
-                                </div>
+                                <>
+                                  <div
+                                    className="cursor-text px-0 py-1 text-sm"
+                                    style={{
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                    data-testid={`cell-${idx}-${col.key}`}
+                                  >
+                                    {row[col.key] ?? ""}
+                                  </div>
+                                  {errMsg && (
+                                    <div
+                                      className="absolute left-0 top-full mt-0 hidden group-hover:block z-50 px-2.5 py-2 text-xs text-gray-700 bg-white border border-gray-300 shadow-md whitespace-normal pointer-events-none"
+                                      style={{
+                                        width: "max-content",
+                                        maxWidth: "300px",
+                                        minWidth: "200px",
+                                      }}
+                                    >
+                                      {errMsg}
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </td>
                           );
                         },
                       )}
-                      <td
-                        className="border-b border-gray-200 px-2.5 py-2 align-top"
-                        style={{ maxWidth: "250px" }}
-                      >
-                        {errors.length > 0 ? (
-                          <ul className="m-0 list-disc pl-5 text-xs text-red-600">
-                            {errors.map((e, i) => (
-                              <li key={i}>
-                                {(
-                                  displayColumns ?? effectiveExpectedColumns
-                                ).find((c) => c.key === e.columnKey)?.label ??
-                                  e.columnKey}
-                                : {e.message}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="text-xs text-gray-500">OK</span>
-                        )}
-                      </td>
                     </tr>
                   );
                 })}
@@ -1075,7 +1063,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                     <td
                       className="border-b border-gray-200 px-2.5 py-2 align-top"
                       colSpan={
-                        (displayColumns ?? effectiveExpectedColumns).length + 2
+                        (displayColumns ?? effectiveExpectedColumns).length + 1
                       }
                     >
                       No rows to display.

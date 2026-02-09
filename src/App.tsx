@@ -131,7 +131,6 @@ export default function App() {
           {step === "mapping" && selectedFile && selectedSchema && (
             <CsvMapper
               key={activeName}
-              file={selectedFile}
               schema={selectedSchema}
               headers={csvHeaders}
               rows={csvRows}
