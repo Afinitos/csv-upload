@@ -36,10 +36,7 @@ function normalizeHeader(s: string): string {
   return s.replace(/[\s_\-]/g, "").toLowerCase();
 }
 
-function autoMapColumns(
-  expected: ExpectedColumn[],
-  headers: string[],
-): ColumnMapping {
+function autoMapColumns(expected: ExpectedColumn[], headers: string[]): ColumnMapping {
   const normalizedHeaderMap = new Map<string, string>();
   headers.forEach((h) => normalizedHeaderMap.set(normalizeHeader(h), h));
 
@@ -60,10 +57,7 @@ function autoMapColumns(
   return mapping;
 }
 
-function detectBestSchemaId(
-  schemas: CsvSchema[],
-  headers: string[],
-): string | null {
+function detectBestSchemaId(schemas: CsvSchema[], headers: string[]): string | null {
   if (schemas.length === 0 || headers.length === 0) return null;
   const normalizedHeaders = new Set(headers.map((h) => normalizeHeader(h)));
   let bestId: string | null = null;
@@ -76,18 +70,13 @@ function detectBestSchemaId(
     let requiredMatches = 0;
     schema.columns.forEach((col) => {
       const candidates = [col.label, col.key];
-      const matched = candidates.some((c) =>
-        normalizedHeaders.has(normalizeHeader(c)),
-      );
+      const matched = candidates.some((c) => normalizedHeaders.has(normalizeHeader(c)));
       if (matched) {
         score += 1;
         if (col.required) requiredMatches += 1;
       }
     });
-    if (
-      score > bestScore ||
-      (score === bestScore && requiredMatches > bestRequiredMatches)
-    ) {
+    if (score > bestScore || (score === bestScore && requiredMatches > bestRequiredMatches)) {
       bestScore = score;
       bestRequiredMatches = requiredMatches;
       bestId = schema.id;
@@ -136,18 +125,11 @@ function validateRow(row: MappedRow, expected: ExpectedColumn[]): CellError[] {
   return errors;
 }
 
-function ruleToValidator(
-  label: string,
-  rule: ColumnRule,
-): (value: string) => string | null {
+function ruleToValidator(label: string, rule: ColumnRule): (value: string) => string | null {
   if (rule.type === "regex") {
     const re = new RegExp(rule.pattern);
     return (v: string) =>
-      v.trim() === ""
-        ? null
-        : re.test(v)
-          ? null
-          : (rule.message ?? `${label} is invalid`);
+      v.trim() === "" ? null : re.test(v) ? null : (rule.message ?? `${label} is invalid`);
   }
   if (rule.type === "enum") {
     const set = new Set(rule.values);
@@ -156,8 +138,7 @@ function ruleToValidator(
         ? null
         : set.has(v)
           ? null
-          : (rule.message ??
-            `${label} must be one of ${rule.values.join(", ")}`);
+          : (rule.message ?? `${label} must be one of ${rule.values.join(", ")}`);
   }
   return () => null;
 }
@@ -192,9 +173,7 @@ function toKey(name: string): string {
   const parts = cleaned.split(/\s+/);
   return parts
     .map((p, i) =>
-      i === 0
-        ? p.toLowerCase()
-        : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(),
+      i === 0 ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(),
     )
     .join("");
 }
@@ -262,15 +241,9 @@ export const CsvMapper: FC<CsvMapperProps> = ({
     const stored = loadCatalogFromStorage(STORAGE);
     return stored ?? loadCatalogDefault();
   });
-  const [headerInclude, setHeaderInclude] = useState<Record<string, boolean>>(
-    {},
-  );
-  const [headerToField, setHeaderToField] = useState<
-    Record<string, string | "__new__">
-  >({});
-  const [headerNewName, setHeaderNewName] = useState<Record<string, string>>(
-    {},
-  );
+  const [headerInclude, setHeaderInclude] = useState<Record<string, boolean>>({});
+  const [headerToField, setHeaderToField] = useState<Record<string, string | "__new__">>({});
+  const [headerNewName, setHeaderNewName] = useState<Record<string, string>>({});
   const [previewHeader, setPreviewHeader] = useState<string | null>(null);
   const creationAllowed = catalog.length === 0;
   const [submitted, setSubmitted] = useState(false);
@@ -297,8 +270,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
       inc[h] = headerInclude[h] ?? true;
       const norm = normalizeHeader(h);
       const match = catalog.find(
-        (f) =>
-          normalizeHeader(f.label) === norm || normalizeHeader(f.key) === norm,
+        (f) => normalizeHeader(f.label) === norm || normalizeHeader(f.key) === norm,
       );
       if (match) {
         h2f[h] = match.key;
@@ -326,17 +298,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
       };
       localStorage.setItem(SESSION, JSON.stringify(data));
     } catch {}
-  }, [
-    SESSION,
-    step,
-    headers,
-    rows,
-    mapping,
-    mappedRows,
-    rowErrors,
-    filterMode,
-    submitted,
-  ]);
+  }, [SESSION, step, headers, rows, mapping, mappedRows, rowErrors, filterMode, submitted]);
 
   const displayColumns = useMemo<ExpectedColumn[] | null>(() => {
     if ((effectiveExpectedColumns ?? []).length > 0) return null;
@@ -362,19 +324,10 @@ export const CsvMapper: FC<CsvMapperProps> = ({
       }
     }
     return cols.length > 0 ? cols : null;
-  }, [
-    effectiveExpectedColumns,
-    headers,
-    headerInclude,
-    headerToField,
-    headerNewName,
-    catalog,
-  ]);
+  }, [effectiveExpectedColumns, headers, headerInclude, headerToField, headerNewName, catalog]);
 
   const requiredColumnsUnmapped = useMemo(() => {
-    return effectiveExpectedColumns.filter(
-      (c) => c.required && !mapping[c.key],
-    );
+    return effectiveExpectedColumns.filter((c) => c.required && !mapping[c.key]);
   }, [effectiveExpectedColumns, mapping]);
 
   const handleApplyMapping = useCallback(() => {
@@ -441,15 +394,11 @@ export const CsvMapper: FC<CsvMapperProps> = ({
   const filteredRowIndexes = useMemo(() => {
     const all = mappedRows.map((_, idx) => idx);
     if (filterMode === "invalid") {
-      const set = new Set(
-        rowErrors.filter((r) => r.errors.length > 0).map((r) => r.rowIndex),
-      );
+      const set = new Set(rowErrors.filter((r) => r.errors.length > 0).map((r) => r.rowIndex));
       return all.filter((idx) => set.has(idx));
     }
     if (filterMode === "valid") {
-      const set = new Set(
-        rowErrors.filter((r) => r.errors.length === 0).map((r) => r.rowIndex),
-      );
+      const set = new Set(rowErrors.filter((r) => r.errors.length === 0).map((r) => r.rowIndex));
       return all.filter((idx) => set.has(idx));
     }
     return all;
@@ -473,8 +422,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
 
   const allVisibleSelected = useMemo(() => {
     return (
-      filteredRowIndexes.length > 0 &&
-      filteredRowIndexes.every((idx) => selectedRows.has(idx))
+      filteredRowIndexes.length > 0 && filteredRowIndexes.every((idx) => selectedRows.has(idx))
     );
   }, [filteredRowIndexes, selectedRows]);
 
@@ -524,10 +472,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
   const deleteSelectedColumnValues = useCallback(() => {
     if (!selectedColumn) return;
 
-    const rowsToClear =
-      selectedRows.size > 0
-        ? new Set(selectedRows)
-        : new Set(filteredRowIndexes);
+    const rowsToClear = selectedRows.size > 0 ? new Set(selectedRows) : new Set(filteredRowIndexes);
 
     setMappedRows((prev) => {
       return prev.map((row, idx) => {
@@ -553,13 +498,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
     });
 
     setSelectedColumn(null);
-  }, [
-    selectedColumn,
-    mappedRows,
-    effectiveExpectedColumns,
-    selectedRows,
-    filteredRowIndexes,
-  ]);
+  }, [selectedColumn, mappedRows, effectiveExpectedColumns, selectedRows, filteredRowIndexes]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -636,9 +575,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
             </div>
           </div>
           {headers.length === 0 ? (
-            <div style={{ color: "#d32f2f" }}>
-              No headers detected. Check your CSV file.
-            </div>
+            <div style={{ color: "#d32f2f" }}>No headers detected. Check your CSV file.</div>
           ) : (
             <div className="flex flex-col gap-2">
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
@@ -655,17 +592,12 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                         </span>{" "}
                         required of{" "}
                         <span className="font-semibold text-gray-900">
-                          {
-                            effectiveExpectedColumns.filter((c) => c.required)
-                              .length
-                          }
+                          {effectiveExpectedColumns.filter((c) => c.required).length}
                         </span>
                       </div>
                       <div>
                         UPLOADED COLUMNS{" "}
-                        <span className="ml-1 font-semibold text-gray-900">
-                          {headers.length}
-                        </span>
+                        <span className="ml-1 font-semibold text-gray-900">{headers.length}</span>
                       </div>
                     </div>
                   </div>
@@ -677,19 +609,13 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                         <div
                           key={col.key}
                           className="grid grid-cols-1 items-center gap-2 rounded-xl border border-gray-200 bg-white p-2.5 lg:grid-cols-[1fr_24px_360px]"
-                          onMouseEnter={() =>
-                            setPreviewHeader(mappedHeader || null)
-                          }
+                          onMouseEnter={() => setPreviewHeader(mappedHeader || null)}
                         >
                           <div className="inline-flex w-fit items-center gap-2 rounded-md bg-gray-100 px-2 py-1 text-[13px] font-semibold text-gray-700">
                             <span>{col.label}</span>
-                            {col.required ? (
-                              <span className="text-red-600">*</span>
-                            ) : null}
+                            {col.required ? <span className="text-red-600">*</span> : null}
                           </div>
-                          <div className="text-center text-sm text-gray-500">
-                            →
-                          </div>
+                          <div className="text-center text-sm text-gray-500">→</div>
                           <div>
                             <select
                               className="h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/20"
@@ -732,23 +658,19 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                         const h = previewHeader ?? headers[0];
                         if (!h) return null;
                         const idx = headers.indexOf(h);
-                        return (rows.length > 0 ? rows.slice(0, 9) : []).map(
-                          (r, i) => {
-                            return (
-                              <li
-                                key={i}
-                                className="border-b border-gray-200 px-1.5 py-2 text-sm text-gray-900 last:border-b-0"
-                              >
-                                {idx >= 0 ? (r[idx] ?? "") : ""}
-                              </li>
-                            );
-                          },
-                        );
+                        return (rows.length > 0 ? rows.slice(0, 9) : []).map((r, i) => {
+                          return (
+                            <li
+                              key={i}
+                              className="border-b border-gray-200 px-1.5 py-2 text-sm text-gray-900 last:border-b-0"
+                            >
+                              {idx >= 0 ? (r[idx] ?? "") : ""}
+                            </li>
+                          );
+                        });
                       })()}
                       {rows.length === 0 ? (
-                        <li className="px-1.5 py-2 text-sm text-gray-500">
-                          No data
-                        </li>
+                        <li className="px-1.5 py-2 text-sm text-gray-500">No data</li>
                       ) : null}
                     </ul>
                   </div>
@@ -767,15 +689,13 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {(rows.length > 0 ? rows.slice(0, 10) : []).map(
-                        (r, i) => (
-                          <tr key={i}>
-                            {headers.map((_, j) => (
-                              <td key={j}>{r[j] ?? ""}</td>
-                            ))}
-                          </tr>
-                        ),
-                      )}
+                      {(rows.length > 0 ? rows.slice(0, 10) : []).map((r, i) => (
+                        <tr key={i}>
+                          {headers.map((_, j) => (
+                            <td key={j}>{r[j] ?? ""}</td>
+                          ))}
+                        </tr>
+                      ))}
                       {rows.length === 0 && (
                         <tr>
                           <td colSpan={headers.length}>No rows</td>
@@ -785,8 +705,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                   </table>
                 </div>
                 <div style={{ color: "#666", fontSize: 12, marginTop: 4 }}>
-                  Showing first {Math.min(rows.length, 10)} of {rows.length}{" "}
-                  row(s)
+                  Showing first {Math.min(rows.length, 10)} of {rows.length} row(s)
                 </div>
               </div>
 
@@ -799,9 +718,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
       {step === "edit" && (
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="text-base font-semibold text-gray-900">
-              Validate data
-            </div>
+            <div className="text-base font-semibold text-gray-900">Validate data</div>
             <div className="flex items-center gap-2">
               <button
                 className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -822,19 +739,14 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                   <button
                     className="h-8 rounded-lg border border-red-500 bg-red-500 px-2.5 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={handleSubmit}
-                    disabled={
-                      (invalidRowCount > 0 && !allowSubmitWithErrors) ||
-                      submitting
-                    }
+                    disabled={(invalidRowCount > 0 && !allowSubmitWithErrors) || submitting}
                     data-testid="submit-button"
                   >
                     {submitting ? "Submitting…" : "Submit"}
                   </button>
                   {submitError ? (
                     <>
-                      <span className="text-sm text-red-600">
-                        {submitError}
-                      </span>
+                      <span className="text-sm text-red-600">{submitError}</span>
                       <button
                         className="h-8 rounded-lg border border-gray-300 bg-white px-2.5 text-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                         onClick={handleSubmit}
@@ -867,9 +779,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
               <button
                 className={
                   "h-8 rounded-lg border bg-white px-2.5 text-sm hover:bg-gray-50 " +
-                  (filterMode === "invalid"
-                    ? "border-red-500 text-red-600"
-                    : "border-gray-300")
+                  (filterMode === "invalid" ? "border-red-500 text-red-600" : "border-gray-300")
                 }
                 onClick={() => setFilterMode("invalid")}
                 aria-pressed={filterMode === "invalid"}
@@ -932,33 +842,21 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                       }
                       style={{ whiteSpace: "nowrap", maxWidth: "200px" }}
                       onClick={() => {
-                        setSelectedColumn(
-                          selectedColumn === col.key ? null : col.key,
-                        );
+                        setSelectedColumn(selectedColumn === col.key ? null : col.key);
                       }}
                       title="Click to select all cells in this column"
                     >
                       {col.label}{" "}
-                      {col.required ? (
-                        <span style={{ color: "var(--primary)" }}>*</span>
-                      ) : null}
+                      {col.required ? <span style={{ color: "var(--primary)" }}>*</span> : null}
                     </th>
                   ))}
-                  <th
-                    className="border-b border-gray-200 bg-gray-50 px-2.5 py-2.5 text-left text-[13px] text-gray-500"
-                    style={{ whiteSpace: "nowrap", maxWidth: "250px" }}
-                  >
-                    Errors
-                  </th>
                 </tr>
               </thead>
               <tbody>
                 {visibleRowIndexes.map((idx) => {
                   const row = mappedRows[idx];
                   const errors = rowErrors[idx]?.errors ?? [];
-                  const errorByCol = new Map(
-                    errors.map((e) => [e.columnKey, e.message]),
-                  );
+                  const errorByCol = new Map(errors.map((e) => [e.columnKey, e.message]));
                   return (
                     <tr key={idx}>
                       <td
@@ -972,101 +870,83 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                           aria-label={`Select row ${idx + 1}`}
                         />
                       </td>
-                      {(displayColumns ?? effectiveExpectedColumns).map(
-                        (col) => {
-                          const errMsg = errorByCol.get(col.key);
-                          const isEditing =
-                            editingCell?.rowIndex === idx &&
-                            editingCell?.columnKey === col.key;
-                          return (
-                            <td
-                              key={col.key}
-                              className={
-                                "border-b border-r border-gray-200 px-2.5 py-2 align-top " +
-                                (isEditing
-                                  ? "bg-gray-50"
-                                  : selectedColumn === col.key
-                                    ? "bg-blue-50"
-                                    : errMsg
-                                      ? "bg-red-50"
-                                      : "bg-white")
+                      {(displayColumns ?? effectiveExpectedColumns).map((col) => {
+                        const errMsg = errorByCol.get(col.key);
+                        const isEditing =
+                          editingCell?.rowIndex === idx && editingCell?.columnKey === col.key;
+                        return (
+                          <td
+                            key={col.key}
+                            className={
+                              "border-b border-r border-gray-200 px-2.5 py-2 align-top relative group " +
+                              (isEditing
+                                ? "bg-gray-50"
+                                : selectedColumn === col.key
+                                  ? "bg-blue-50"
+                                  : errMsg
+                                    ? "bg-red-50"
+                                    : "bg-white")
+                            }
+                            style={{ maxWidth: "200px" }}
+                            onClick={() => {
+                              if (!isEditing) {
+                                setEditingCell({
+                                  rowIndex: idx,
+                                  columnKey: col.key,
+                                });
+                                setSelectedColumn(null);
                               }
-                              style={{ maxWidth: "200px" }}
-                              onClick={() => {
-                                if (!isEditing) {
-                                  setEditingCell({
-                                    rowIndex: idx,
-                                    columnKey: col.key,
-                                  });
-                                  setSelectedColumn(null);
+                            }}
+                          >
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                className={
+                                  "w-full border-none bg-transparent px-0 py-1 text-sm outline-none focus:ring-0 " +
+                                  (errMsg ? "cx-cell invalid" : "cx-cell")
                                 }
-                              }}
-                            >
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  className="w-full border-none bg-transparent px-0 py-1 text-sm outline-none focus:ring-0"
-                                  style={{ overflow: "auto" }}
-                                  value={row[col.key] ?? ""}
-                                  onChange={(e) =>
-                                    updateCellValue(
-                                      idx,
-                                      col.key,
-                                      e.target.value,
-                                    )
+                                style={{ overflow: "auto" }}
+                                value={row[col.key] ?? ""}
+                                onChange={(e) => updateCellValue(idx, col.key, e.target.value)}
+                                onBlur={() => setEditingCell(null)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === "Escape") {
+                                    setEditingCell(null);
                                   }
-                                  onBlur={() => setEditingCell(null)}
-                                  onKeyDown={(e) => {
-                                    if (
-                                      e.key === "Enter" ||
-                                      e.key === "Escape"
-                                    ) {
-                                      setEditingCell(null);
-                                    }
-                                  }}
-                                  onFocus={(e) => {
-                                    e.target.setSelectionRange(0, 0);
-                                  }}
-                                  autoFocus
-                                  data-testid={`cell-${idx}-${col.key}`}
-                                />
-                              ) : (
-                                <div
-                                  className="cursor-text px-0 py-1 text-sm"
-                                  style={{
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                  }}
-                                  data-testid={`cell-${idx}-${col.key}`}
-                                >
-                                  {row[col.key] ?? ""}
-                                </div>
-                              )}
-                            </td>
-                          );
-                        },
-                      )}
-                      <td
-                        className="border-b border-gray-200 px-2.5 py-2 align-top"
-                        style={{ maxWidth: "250px" }}
-                      >
-                        {errors.length > 0 ? (
-                          <ul className="m-0 list-disc pl-5 text-xs text-red-600">
-                            {errors.map((e, i) => (
-                              <li key={i}>
-                                {(
-                                  displayColumns ?? effectiveExpectedColumns
-                                ).find((c) => c.key === e.columnKey)?.label ??
-                                  e.columnKey}
-                                : {e.message}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="text-xs text-gray-500">OK</span>
-                        )}
-                      </td>
+                                }}
+                                onFocus={(e) => {
+                                  e.target.setSelectionRange(0, 0);
+                                }}
+                                autoFocus
+                                data-testid={`cell-${idx}-${col.key}`}
+                              />
+                            ) : (
+                              <div
+                                className={
+                                  "cursor-text px-0 py-1 text-sm " +
+                                  (errMsg ? "cx-cell invalid" : "cx-cell")
+                                }
+                                style={{
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                                data-testid={`cell-${idx}-${col.key}`}
+                              >
+                                {row[col.key] ?? ""}
+                              </div>
+                            )}
+                            {errMsg ? (
+                              <div
+                                className="absolute left-0 top z-10 hidden w-full rounded-md border border-red-200 bg-white px-2 py-1.5 text-xs text-gray-900 shadow group-hover:block group-focus-within:block"
+                                role="tooltip"
+                              >
+                                {errMsg}
+                              </div>
+                            ) : null}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })}
@@ -1074,9 +954,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                   <tr>
                     <td
                       className="border-b border-gray-200 px-2.5 py-2 align-top"
-                      colSpan={
-                        (displayColumns ?? effectiveExpectedColumns).length + 2
-                      }
+                      colSpan={(displayColumns ?? effectiveExpectedColumns).length + 1}
                     >
                       No rows to display.
                     </td>
@@ -1093,12 +971,7 @@ export const CsvMapper: FC<CsvMapperProps> = ({
                 onClick={() => setPageIndex((prev) => Math.max(0, prev - 1))}
                 disabled={pageIndex === 0}
               >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1110,28 +983,17 @@ export const CsvMapper: FC<CsvMapperProps> = ({
               </button>
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <span>Page</span>
-                <span className="font-semibold text-gray-900">
-                  {pageIndex + 1}
-                </span>
+                <span className="font-semibold text-gray-900">{pageIndex + 1}</span>
                 <span>of</span>
-                <span className="font-semibold text-gray-900">
-                  {totalPages}
-                </span>
+                <span className="font-semibold text-gray-900">{totalPages}</span>
               </div>
               <button
                 className="flex h-9 items-center gap-2 px-3 text-sm font-medium text-gray-700 hover:text-gray-900 disabled:cursor-not-allowed disabled:text-gray-400"
-                onClick={() =>
-                  setPageIndex((prev) => Math.min(totalPages - 1, prev + 1))
-                }
+                onClick={() => setPageIndex((prev) => Math.min(totalPages - 1, prev + 1))}
                 disabled={pageIndex >= totalPages - 1}
               >
                 Next
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
